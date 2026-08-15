@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import styles from './RangeCalendar.module.css';
 
 type Props = {
   label: string;
@@ -51,37 +52,34 @@ export default function RangeCalendar({ label, value, rangeStart, rangeEnd, min,
   const end = parseIso(rangeEnd);
 
   return (
-    <div className="inline-calendar">
-      <div className="inline-calendar-top">
+    <div className={styles.calendar}>
+      <div className={styles.top}>
         <span>{label}</span>
-        <div className="calendar-nav">
+        <div className={styles.nav}>
           <button type="button" onClick={() => moveMonth(-1)} aria-label="Previous month">‹</button>
           <strong>{viewMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</strong>
           <button type="button" onClick={() => moveMonth(1)} aria-label="Next month">›</button>
         </div>
       </div>
-      <div className="calendar-weekdays">
+      <div className={styles.weekdays}>
         {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => <span key={day}>{day}</span>)}
       </div>
-      <div className="calendar-days">
+      <div className={styles.days}>
         {days.map(day => {
           const dayIso = iso(day);
           const outside = day.getMonth() !== viewMonth.getMonth();
           const selected = dayIso === value;
           const inRange = day >= start && day <= end;
           const disabled = !!minDate && day < minDate;
+          const classes = [outside ? styles.outside : '', inRange ? styles.inRange : '', selected ? styles.selected : ''].filter(Boolean).join(' ');
           return (
-            <button
-              type="button"
-              key={dayIso}
-              disabled={disabled}
-              className={`${outside ? 'outside' : ''} ${inRange ? 'in-range' : ''} ${selected ? 'selected' : ''}`}
-              onClick={() => onChange(dayIso)}
-            >{day.getDate()}</button>
+            <button type="button" key={dayIso} disabled={disabled} className={classes} onClick={() => onChange(dayIso)}>
+              {day.getDate()}
+            </button>
           );
         })}
       </div>
-      <button type="button" className="calendar-today" onClick={() => {
+      <button type="button" className={styles.today} onClick={() => {
         const today = iso(new Date());
         if (!min || today >= min) onChange(today);
       }}>Today</button>
