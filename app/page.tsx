@@ -29,7 +29,6 @@ type RangeAssignment = {
 };
 type RangePicker = RangeAssignment | null;
 type DurationUnit = 'days' | 'weeks' | 'months';
-
 type PersonnelStatusOption = { code: Status; label: string };
 
 const STATUS_ORDER: Status[] = ['PRESENT', 'OFF', 'LEAVE', 'OB', 'ABSENT', 'UNRECORDED'];
@@ -108,7 +107,25 @@ export default function Home() {
     } catch (e) { setMessage(e instanceof Error ? e.message : 'Unable to load attendance.'); } finally { setBusy(false); }
   }
 
-  function openRangePicker(person: Personnel, day: Date, status: Status, leaveType?: string) { const selected = iso(day); setDurationValue(''); setDurationUnit('days'); setRangePicker({ employeeKey: person.badgeNumber, personName: person.fullName, status, leaveType, startDate: selected, endDate: selected }); }
+  function buildRangePicker(person: Personnel, day: Date, status: Status, leaveType?: string): RangeAssignment {
+    const selected = iso(day);
+    return { employeeKey: person.badgeNumber, personName: person.fullName, status, leaveType, startDate: selected, endDate: selected };
+  }
+
+  function openRangePicker(person: Personnel, day: Date, status: Status, leaveType?: string) {
+    setDurationValue('');
+    setDurationUnit('days');
+    setRangePicker(buildRangePicker(person, day, status, leaveType));
+  }
+
+  function openRangeAfterModal(target: NonNullable<CellPicker>, status: Status, leaveType?: string, close: () => void = () => {}) {
+    const assignment = buildRangePicker(target.person, target.day, status, leaveType);
+    setDurationValue('');
+    setDurationUnit('days');
+    close();
+    window.setTimeout(() => setRangePicker(assignment), 0);
+  }
+
   function cycleCell(person: Personnel, day: Date) { setActiveDay(iso(day)); const k = key(person.badgeNumber, iso(day)); const current = cells[k]?.status || 'UNRECORDED'; const currentIndex = STATUS_ORDER.indexOf(current); const next = STATUS_ORDER[(currentIndex < 0 ? 0 : currentIndex + 1) % STATUS_ORDER.length]; setCells(prev => ({ ...prev, [k]: { status: next, leaveType: next === 'LEAVE' ? prev[k]?.leaveType : undefined } })); }
   function chooseLeaveType(leaveType: string) { if (!leavePicker) return; const { person, day } = leavePicker; const k = key(person.badgeNumber, iso(day)); setCells(prev => ({ ...prev, [k]: { status: 'LEAVE', leaveType } })); setLeavePicker(null); setMessage(`${leaveType} set for ${person.fullName} on ${iso(day)}.`); }
   function choosePersonnelStatus(status: Status, label: string) { if (!statusPicker) return; const { person, day } = statusPicker; const k = key(person.badgeNumber, iso(day)); setCells(prev => ({ ...prev, [k]: { status } })); setStatusPicker(null); setActiveDay(iso(day)); setMessage(`${label} (${LABEL[status]}) set for ${person.fullName} on ${iso(day)}.`); }
@@ -140,9 +157,9 @@ export default function Home() {
     <footer><span>{message}{pendingRanges.length ? ` · ${pendingRanges.length} range${pendingRanges.length === 1 ? '' : 's'} pending` : ''}</span><button className="primary" onClick={saveWeek} disabled={busy || !office}>Save Week</button></footer>
   </section>
 
-  {leavePicker && (() => { const current = cells[key(leavePicker.person.badgeNumber, iso(leavePicker.day))] || { status: 'LEAVE' as Status }; return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setLeavePicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Leave details"><div className="picker-head"><div><strong>Leave details</strong><span>{leavePicker.person.fullName} · {leavePicker.day.toLocaleDateString()}</span></div><button onClick={() => setLeavePicker(null)} aria-label="Close">×</button></div><div className="leave-options"><button onClick={() => { const target = leavePicker; setLeavePicker(null); openRangePicker(target.person, target.day, 'LEAVE', current.leaveType); }}><b>DATE</b><span>Set date range</span></button><button onClick={() => { const target = leavePicker; setLeavePicker(null); setStatusPicker(target); }}><b>STS</b><span>Personnel status</span></button>{leaveTypes.length ? leaveTypes.map(type => <button key={type} onClick={() => chooseLeaveType(type)}><b>{leaveCode(type)}</b><span>{type}</span></button>) : <p>No leave types configured.</p>}</div></section></div>; })()}
+  {leavePicker && (() => { const current = cells[key(leavePicker.person.badgeNumber, iso(leavePicker.day))] || { status: 'LEAVE' as Status }; return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setLeavePicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Leave details"><div className="picker-head"><div><strong>Leave details</strong><span>{leavePicker.person.fullName} · {leavePicker.day.toLocaleDateString()}</span></div><button onClick={() => setLeavePicker(null)} aria-label="Close">×</button></div><div className="leave-options"><button onClick={() => openRangeAfterModal(leavePicker, 'LEAVE', current.leaveType, () => setLeavePicker(null))}><b>DATE</b><span>Set date range</span></button><button onClick={() => { const target = leavePicker; setLeavePicker(null); setStatusPicker(target); }}><b>STS</b><span>Personnel status</span></button>{leaveTypes.length ? leaveTypes.map(type => <button key={type} onClick={() => chooseLeaveType(type)}><b>{leaveCode(type)}</b><span>{type}</span></button>) : <p>No leave types configured.</p>}</div></section></div>; })()}
 
-  {statusPicker && (() => { const current = cells[key(statusPicker.person.badgeNumber, iso(statusPicker.day))] || { status: 'UNRECORDED' as Status }; return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setStatusPicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Select personnel status"><div className="picker-head"><div><strong>Select personnel status</strong><span>{statusPicker.person.fullName} · {statusPicker.day.toLocaleDateString()}</span></div><button onClick={() => setStatusPicker(null)} aria-label="Close">×</button></div><div className="leave-options"><button onClick={() => { const target = statusPicker; setStatusPicker(null); openRangePicker(target.person, target.day, current.status, current.leaveType); }}><b>DATE</b><span>Set date range for current status</span></button>{PERSONNEL_STATUSES.map(option => <button key={option.code} onClick={() => choosePersonnelStatus(option.code, option.label)}><b>{option.code}</b><span>{option.label}</span></button>)}</div></section></div>; })()}
+  {statusPicker && (() => { const current = cells[key(statusPicker.person.badgeNumber, iso(statusPicker.day))] || { status: 'UNRECORDED' as Status }; return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setStatusPicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Select personnel status"><div className="picker-head"><div><strong>Select personnel status</strong><span>{statusPicker.person.fullName} · {statusPicker.day.toLocaleDateString()}</span></div><button onClick={() => setStatusPicker(null)} aria-label="Close">×</button></div><div className="leave-options"><button onClick={() => openRangeAfterModal(statusPicker, current.status, current.leaveType, () => setStatusPicker(null))}><b>DATE</b><span>Set date range for current status</span></button>{PERSONNEL_STATUSES.map(option => <button key={option.code} onClick={() => choosePersonnelStatus(option.code, option.label)}><b>{option.code}</b><span>{option.label}</span></button>)}</div></section></div>; })()}
 
   {rangePicker && <RangePickerModal assignment={rangePicker} durationValue={durationValue} durationUnit={durationUnit} dayCount={datesBetween(rangePicker.startDate, rangePicker.endDate).length} onStartChange={value => setRangePicker(prev => prev ? { ...prev, startDate: value, endDate: value > prev.endDate ? value : prev.endDate } : prev)} onEndChange={value => setRangePicker(prev => prev ? { ...prev, endDate: value } : prev)} onDurationValueChange={setDurationValue} onDurationUnitChange={setDurationUnit} onSetEndDate={applyDuration} onCancel={() => setRangePicker(null)} onApply={applyRange} />}
   </main>;
