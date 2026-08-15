@@ -34,23 +34,27 @@ export async function loadReferenceData() {
   const ix = (name: string) => headers.indexOf(name);
 
   const personnel: Personnel[] = listRows.slice(1)
-    .filter(row => row[ix('RECORD ID')])
-    .map(row => ({
-      recordId: String(row[ix('RECORD ID')] || ''),
-      badgeNumber: String(row[ix('BADGE NUMBER')] || ''),
-      rank: String(row[ix('RANK')] || ''),
-      fullName: [row[ix('RANK')], row[ix('FIRST NAME')], row[ix('MIDDLE NAME')], row[ix('LAST NAME')], row[ix('SUFFIX')]].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(),
-      camp: String(row[ix('CAMP')] || ''),
-      office: String(row[ix('OFFICE')] || ''),
-      gender: String(row[ix('GENDER')] || ''),
-      classification: String(row[ix('CLASSIFICATION')] || ''),
-      personnelType: String(row[ix('TYPE')] || '')
-    }));
+    .filter(row => row[ix('BADGE NUMBER')])
+    .map(row => {
+      const badgeNumber = String(row[ix('BADGE NUMBER')] || '').trim();
+      return {
+        // Keep the existing UI contract for now, but use BADGE NUMBER as the permanent employee key.
+        recordId: badgeNumber,
+        badgeNumber,
+        rank: String(row[ix('RANK')] || ''),
+        fullName: [row[ix('RANK')], row[ix('FIRST NAME')], row[ix('MIDDLE NAME')], row[ix('LAST NAME')], row[ix('SUFFIX')]].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(),
+        camp: String(row[ix('CAMP')] || '').trim(),
+        office: String(row[ix('OFFICE')] || '').trim(),
+        gender: String(row[ix('GENDER')] || '').trim(),
+        classification: String(row[ix('CLASSIFICATION')] || '').trim(),
+        personnelType: String(row[ix('TYPE')] || '').trim()
+      };
+    });
 
   const offices = (officeRange?.values || []).slice(1)
     .filter(row => row[0] && row[1] && String(row[2]).toLowerCase() !== 'false')
-    .map(row => ({ camp: String(row[0]), office: String(row[1]), sortOrder: Number(row[3] || 0) }));
+    .map(row => ({ camp: String(row[0]).trim(), office: String(row[1]).trim(), sortOrder: Number(row[3] || 0) }));
 
-  const leaveTypes = (leaveRange?.values || []).slice(1).map(row => String(row[0] || '')).filter(Boolean);
+  const leaveTypes = (leaveRange?.values || []).slice(1).map(row => String(row[0] || '').trim()).filter(Boolean);
   return { personnel, offices, leaveTypes };
 }
