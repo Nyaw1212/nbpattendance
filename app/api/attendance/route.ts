@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const sql = db();
     const rows = await sql`
       SELECT employee_key, attendance_date::text, status, leave_type
-      FROM attendance
+      FROM nbp_attendance.attendance
       WHERE attendance_date BETWEEN ${weekStart}::date AND ${weekEnd}::date
         AND camp_at_time = ${camp}
         AND office_at_time = ${office}
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     await sql.begin(async tx => {
       for (const entry of entries) {
         await tx`
-          INSERT INTO attendance (employee_key, attendance_date, status, leave_type, camp_at_time, office_at_time, updated_at)
+          INSERT INTO nbp_attendance.attendance (employee_key, attendance_date, status, leave_type, camp_at_time, office_at_time, updated_at)
           VALUES (${String(entry.employeeKey)}, ${String(entry.date)}::date, ${String(entry.status)}, ${entry.leaveType || null}, ${String(entry.camp)}, ${String(entry.office)}, NOW())
           ON CONFLICT (employee_key, attendance_date)
           DO UPDATE SET status = EXCLUDED.status,
