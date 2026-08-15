@@ -54,6 +54,11 @@ function leaveCode(value?: string) {
   return words.map(w => w[0]).join('').slice(0, 3).toUpperCase();
 }
 
+function caseLabel(cell: Cell) {
+  if (cell.status === 'LEAVE') return cell.leaveType ? leaveCode(cell.leaveType) : 'LEAVE';
+  return cell.status;
+}
+
 export default function Home() {
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
@@ -77,6 +82,19 @@ export default function Home() {
     .sort((a, b) => a.fullName.localeCompare(b.fullName)), [officeRoster, search]);
   const activeDate = useMemo(() => new Date(`${activeDay}T12:00:00`), [activeDay]);
 
+  const abnormalCases = useMemo(() => officeRoster
+    .map(person => ({ person, cell: cells[key(person.badgeNumber, activeDay)] || { status: 'UNRECORDED' as Status } }))
+    .filter(item => item.cell.status !== 'PRESENT' && item.cell.status !== 'OFF')
+    .sort((a, b) => a.cell.status.localeCompare(b.cell.status) || a.person.fullName.localeCompare(b.person.fullName)), [officeRoster, cells, activeDay]);
+
+  const abnormalCounts = useMemo(() => {
+    const counts = { LEAVE: 0, OB: 0, ABSENT: 0, UNRECORDED: 0 };
+    abnormalCases.forEach(({ cell }) => {
+      if (cell.status in counts) counts[cell.status as keyof typeof counts]++;
+    });
+    return counts;
+  }, [abnormalCases]);
+
   useEffect(() => {
     fetch('/api/reference').then(async r => {
       const data = await r.json();
@@ -92,9 +110,7 @@ export default function Home() {
     }).catch(e => setMessage(e.message));
   }, []);
 
-  useEffect(() => {
-    setActiveDay(date);
-  }, [date]);
+  useEffect(() => { setActiveDay(date); }, [date]);
 
   useEffect(() => {
     if (!camp || !office) return;
@@ -177,14 +193,6 @@ export default function Home() {
     } finally { setBusy(false); }
   }
 
-  const totals = useMemo(() => {
-    const out: Record<Status, number> = { PRESENT: 0, OFF: 0, LEAVE: 0, OB: 0, ABSENT: 0, UNRECORDED: 0 };
-    officeRoster.forEach(p => {
-      out[(cells[key(p.badgeNumber, activeDay)]?.status || 'UNRECORDED')]++;
-    });
-    return out;
-  }, [cells, officeRoster, activeDay]);
-
   function moveWeek(days: number) {
     const d = new Date(`${date}T12:00:00`);
     d.setDate(d.getDate() + days);
@@ -207,29 +215,54 @@ export default function Home() {
           <button onClick={applyPreset} disabled={busy || !office}>Apply Preset</button>
         </div>
 
-        <div className="day-summary">
-          <div className="selected-day-indicator">
-            <span>SUMMARY FOR</span>
-            <strong>{activeDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong>
-            <small>Click any day header below to change the summary.</small>
+        <section className="daily-focus">
+          <div className="date-picker-panel">
+            <div className="panel-label">DATE</div>
+            <div className="day-tiles">
+              {week.map(day => {
+                const selected = iso(day) === activeDay;
+                return <button key={iso(day)} className={`day-tile ${selected ? 'selected' : ''}`} onClick={() => setActiveDay(iso(day))}>
+                  <span>{day.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span>
+                  <strong>{day.getDate()}</strong>
+                  <small>{day.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</small>
+                </button>;
+              })}
+            </div>
           </div>
-          <div className="summary">
-            <Stat label="Personnel" value={officeRoster.length} />
-            <Stat label="Present" value={totals.PRESENT} />
-            <Stat label="Off" value={totals.OFF} />
-            <Stat label="Leave" value={totals.LEAVE} />
-            <Stat label="OB" value={totals.OB} />
-            <Stat label="Absent" value={totals.ABSENT} />
-            <Stat label="Unrecorded" value={totals.UNRECORDED} />
+
+          <div className="abnormal-panel">
+            <div className="abnormal-head">
+              <div>
+                <span>ABNORMAL CASES</span>
+                <strong>{activeDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong>
+              </div>
+              <div className="case-count">{abnormalCases.length}</div>
+            </div>
+
+            <div className="case-chips">
+              <span>Leave <b>{abnormalCounts.LEAVE}</b></span>
+              <span>OB <b>{abnormalCounts.OB}</b></span>
+              <span>Absent <b>{abnormalCounts.ABSENT}</b></span>
+              <span>Unrecorded <b>{abnormalCounts.UNRECORDED}</b></span>
+            </div>
+
+            <div className="case-list">
+              {abnormalCases.length === 0 ? <div className="no-cases">No abnormal cases for this day.</div> : abnormalCases.map(({ person, cell }) => (
+                <div className="case-row" key={person.badgeNumber}>
+                  <div><b>{person.fullName}</b><small>{person.rank} · Badge {person.badgeNumber}</small></div>
+                  <span className={`case-status case-${cell.status.toLowerCase()}`} title={cell.leaveType || cell.status}>{caseLabel(cell)}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        </section>
 
         <div className="toolbar">
           <button onClick={() => moveWeek(-7)}>‹ Previous</button>
           <strong>{week[0].toLocaleDateString()} – {week[6].toLocaleDateString()}</strong>
           <button onClick={() => moveWeek(7)}>Next ›</button>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search personnel..." />
-          <span className="hint">Click: P → O → L → OB → A → —</span>
+          <span className="hint">P → O → L → OB → A → —</span>
           <button onClick={clearWeek}>Clear Week</button>
         </div>
 
@@ -242,7 +275,6 @@ export default function Home() {
                   <button className="day-head-button" onClick={() => setActiveDay(iso(d))}>
                     <span>{d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span>
                     <small>{d.getMonth()+1}/{d.getDate()}</small>
-                    {selected && <em>SELECTED</em>}
                   </button>
                 </th>;
               })}</tr></thead>
@@ -291,8 +323,4 @@ export default function Home() {
       )}
     </main>
   );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return <div className="stat"><span>{label}</span><strong>{value}</strong></div>;
 }
