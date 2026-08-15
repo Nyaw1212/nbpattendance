@@ -3,7 +3,7 @@
 import RangeCalendar from './RangeCalendar';
 import styles from './RangePickerModal.module.css';
 
-type Status = 'PRESENT' | 'OFF' | 'LEAVE' | 'OB' | 'ABSENT' | 'UNRECORDED';
+type Status = 'PRESENT' | 'OFF' | 'LEAVE' | 'OB' | 'ABSENT' | 'UNRECORDED' | 'ACT' | 'TRN' | 'UI' | 'AWOL' | 'AWA' | 'SUS' | 'DET' | 'DEC' | 'DIS' | 'RET';
 type DurationUnit = 'days' | 'weeks' | 'months';
 
 type Assignment = {
@@ -53,7 +53,7 @@ export default function RangePickerModal({
         <div className={styles.header}>
           <div>
             <strong>Select date range</strong>
-            <span>{assignment.personName} · {assignment.status === 'LEAVE' ? assignment.leaveType : assignment.status}</span>
+            <span>{assignment.personName} · {assignment.status === 'LEAVE' ? assignment.leaveType || 'Leave' : assignment.status}</span>
           </div>
           <button type="button" onClick={onCancel} aria-label="Close">×</button>
         </div>
@@ -80,7 +80,7 @@ export default function RangePickerModal({
           <div className={styles.durationTool}>
             <div>
               <span>OR ENTER DURATION</span>
-              <small>Useful for long leaves such as maternity leave.</small>
+              <small>Useful for long statuses or leave periods.</small>
             </div>
             <input type="number" min="1" placeholder="e.g. 105" value={durationValue} onChange={e => onDurationValueChange(e.target.value)} />
             <select value={durationUnit} onChange={e => onDurationUnitChange(e.target.value as DurationUnit)}>
