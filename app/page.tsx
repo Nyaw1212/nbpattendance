@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import RangePickerModal from './RangePickerModal';
 
 type Personnel = {
   recordId: string;
@@ -31,12 +32,7 @@ type DurationUnit = 'days' | 'weeks' | 'months';
 
 const STATUS_ORDER: Status[] = ['PRESENT', 'OFF', 'LEAVE', 'OB', 'ABSENT', 'UNRECORDED'];
 const LABEL: Record<Status, string> = {
-  PRESENT: 'P',
-  OFF: 'O',
-  LEAVE: 'L',
-  OB: 'OB',
-  ABSENT: 'A',
-  UNRECORDED: '—',
+  PRESENT: 'P', OFF: 'O', LEAVE: 'L', OB: 'OB', ABSENT: 'A', UNRECORDED: '—',
 };
 
 function iso(d: Date) {
@@ -128,29 +124,17 @@ export default function Home() {
 
   const week = useMemo(() => weekFrom(date), [date]);
   const camps = useMemo(() => [...new Set(offices.map(o => o.camp))], [offices]);
-  const officeOptions = useMemo(
-    () => offices.filter(o => o.camp === camp).sort((a, b) => a.sortOrder - b.sortOrder),
-    [offices, camp],
-  );
-  const officeRoster = useMemo(
-    () => personnel.filter(p => p.camp === camp && p.office === office),
-    [personnel, camp, office],
-  );
-  const roster = useMemo(
-    () => officeRoster
-      .filter(p => !search || p.fullName.toLowerCase().includes(search.toLowerCase()) || p.badgeNumber.includes(search))
-      .sort((a, b) => a.fullName.localeCompare(b.fullName)),
-    [officeRoster, search],
-  );
+  const officeOptions = useMemo(() => offices.filter(o => o.camp === camp).sort((a, b) => a.sortOrder - b.sortOrder), [offices, camp]);
+  const officeRoster = useMemo(() => personnel.filter(p => p.camp === camp && p.office === office), [personnel, camp, office]);
+  const roster = useMemo(() => officeRoster
+    .filter(p => !search || p.fullName.toLowerCase().includes(search.toLowerCase()) || p.badgeNumber.includes(search))
+    .sort((a, b) => a.fullName.localeCompare(b.fullName)), [officeRoster, search]);
   const activeDate = useMemo(() => parseIso(activeDay), [activeDay]);
 
-  const abnormalCases = useMemo(
-    () => officeRoster
-      .map(person => ({ person, cell: cells[key(person.badgeNumber, activeDay)] || { status: 'UNRECORDED' as Status } }))
-      .filter(item => item.cell.status !== 'PRESENT' && item.cell.status !== 'OFF')
-      .sort((a, b) => a.cell.status.localeCompare(b.cell.status) || a.person.fullName.localeCompare(b.person.fullName)),
-    [officeRoster, cells, activeDay],
-  );
+  const abnormalCases = useMemo(() => officeRoster
+    .map(person => ({ person, cell: cells[key(person.badgeNumber, activeDay)] || { status: 'UNRECORDED' as Status } }))
+    .filter(item => item.cell.status !== 'PRESENT' && item.cell.status !== 'OFF')
+    .sort((a, b) => a.cell.status.localeCompare(b.cell.status) || a.person.fullName.localeCompare(b.person.fullName)), [officeRoster, cells, activeDay]);
 
   const abnormalCounts = useMemo(() => {
     const counts = { LEAVE: 0, OB: 0, ABSENT: 0, UNRECORDED: 0 };
@@ -174,9 +158,7 @@ export default function Home() {
     }).catch(e => setMessage(e.message));
   }, []);
 
-  useEffect(() => {
-    setActiveDay(date);
-  }, [date]);
+  useEffect(() => { setActiveDay(date); }, [date]);
 
   useEffect(() => {
     if (!camp || !office) return;
@@ -188,10 +170,7 @@ export default function Home() {
     const next = { ...base };
     for (const assignment of pendingRanges) {
       for (const day of datesBetween(assignment.startDate, assignment.endDate)) {
-        next[key(assignment.employeeKey, day)] = {
-          status: assignment.status,
-          leaveType: assignment.leaveType,
-        };
+        next[key(assignment.employeeKey, day)] = { status: assignment.status, leaveType: assignment.leaveType };
       }
     }
     return next;
@@ -207,12 +186,7 @@ export default function Home() {
     setBusy(true);
     setMessage(`Loading ${office}...`);
     try {
-      const params = new URLSearchParams({
-        weekStart: iso(week[0]),
-        weekEnd: iso(week[6]),
-        camp,
-        office,
-      });
+      const params = new URLSearchParams({ weekStart: iso(week[0]), weekEnd: iso(week[6]), camp, office });
       const r = await fetch(`/api/attendance?${params}`);
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'Unable to load attendance.');
@@ -254,17 +228,11 @@ export default function Home() {
 
     setCells(prev => ({
       ...prev,
-      [k]: {
-        status: next,
-        leaveType: next === 'LEAVE' ? prev[k]?.leaveType : undefined,
-      },
+      [k]: { status: next, leaveType: next === 'LEAVE' ? prev[k]?.leaveType : undefined },
     }));
 
-    if (next === 'LEAVE') {
-      setLeavePicker({ person, day });
-    } else if (next === 'OB' || next === 'ABSENT') {
-      openRangePicker(person, day, next);
-    }
+    if (next === 'LEAVE') setLeavePicker({ person, day });
+    else if (next === 'OB' || next === 'ABSENT') openRangePicker(person, day, next);
   }
 
   function chooseLeaveType(leaveType: string) {
@@ -280,10 +248,7 @@ export default function Home() {
     if (!rangePicker || !durationValue) return;
     const amount = Number(durationValue);
     if (!Number.isFinite(amount) || amount <= 0) return;
-    setRangePicker(prev => prev ? {
-      ...prev,
-      endDate: addDuration(prev.startDate, amount, durationUnit),
-    } : prev);
+    setRangePicker(prev => prev ? { ...prev, endDate: addDuration(prev.startDate, amount, durationUnit) } : prev);
   }
 
   function applyRange() {
@@ -297,10 +262,7 @@ export default function Home() {
     setCells(prev => {
       const next = { ...prev };
       for (const day of days) {
-        next[key(rangePicker.employeeKey, day)] = {
-          status: rangePicker.status,
-          leaveType: rangePicker.leaveType,
-        };
+        next[key(rangePicker.employeeKey, day)] = { status: rangePicker.status, leaveType: rangePicker.leaveType };
       }
       return next;
     });
@@ -445,48 +407,38 @@ export default function Home() {
         <div className="grid-wrap">
           {!office ? <div className="empty">Select a camp and office.</div> : (
             <table className="attendance-grid">
-              <thead>
-                <tr>
-                  <th>Personnel</th>
-                  {week.map(d => (
-                    <th key={iso(d)} className={iso(d) === activeDay ? 'active-day-column' : ''}>
-                      <button className="day-head-button" onClick={() => setActiveDay(iso(d))}>
-                        <span>{d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span>
-                        <small>{d.getMonth() + 1}/{d.getDate()}</small>
-                      </button>
-                    </th>
-                  ))}
+              <thead><tr><th>Personnel</th>{week.map(d => (
+                <th key={iso(d)} className={iso(d) === activeDay ? 'active-day-column' : ''}>
+                  <button className="day-head-button" onClick={() => setActiveDay(iso(d))}>
+                    <span>{d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span>
+                    <small>{d.getMonth() + 1}/{d.getDate()}</small>
+                  </button>
+                </th>
+              ))}</tr></thead>
+              <tbody>{roster.map(p => (
+                <tr key={p.badgeNumber}>
+                  <td><b>{p.fullName}</b><small>{p.rank} · Badge {p.badgeNumber || '—'}</small></td>
+                  {week.map(day => {
+                    const c = cells[key(p.badgeNumber, iso(day))] || { status: 'UNRECORDED' as Status };
+                    const display = c.status === 'LEAVE' ? leaveCode(c.leaveType) : LABEL[c.status];
+                    return (
+                      <td key={iso(day)} className={iso(day) === activeDay ? 'active-day-cell' : ''}>
+                        <button
+                          className={`status status-${c.status.toLowerCase()} ${c.status === 'LEAVE' && c.leaveType ? 'status-wide' : ''}`}
+                          onClick={() => cycleCell(p, day)}
+                          onContextMenu={e => {
+                            e.preventDefault();
+                            setActiveDay(iso(day));
+                            if (c.status === 'LEAVE') openRangePicker(p, day, 'LEAVE', c.leaveType);
+                            else if (c.status === 'OB' || c.status === 'ABSENT') openRangePicker(p, day, c.status);
+                          }}
+                          title={c.status === 'LEAVE' && c.leaveType ? `${c.leaveType} · right-click to change date range` : (c.status === 'OB' || c.status === 'ABSENT' ? 'Right-click to change date range' : undefined)}
+                        >{display}</button>
+                      </td>
+                    );
+                  })}
                 </tr>
-              </thead>
-              <tbody>
-                {roster.map(p => (
-                  <tr key={p.badgeNumber}>
-                    <td><b>{p.fullName}</b><small>{p.rank} · Badge {p.badgeNumber || '—'}</small></td>
-                    {week.map(day => {
-                      const c = cells[key(p.badgeNumber, iso(day))] || { status: 'UNRECORDED' as Status };
-                      const display = c.status === 'LEAVE' ? leaveCode(c.leaveType) : LABEL[c.status];
-                      return (
-                        <td key={iso(day)} className={iso(day) === activeDay ? 'active-day-cell' : ''}>
-                          <button
-                            className={`status status-${c.status.toLowerCase()} ${c.status === 'LEAVE' && c.leaveType ? 'status-wide' : ''}`}
-                            onClick={() => cycleCell(p, day)}
-                            onContextMenu={e => {
-                              e.preventDefault();
-                              setActiveDay(iso(day));
-                              if (c.status === 'LEAVE') {
-                                openRangePicker(p, day, 'LEAVE', c.leaveType);
-                              } else if (c.status === 'OB' || c.status === 'ABSENT') {
-                                openRangePicker(p, day, c.status);
-                              }
-                            }}
-                            title={c.status === 'LEAVE' && c.leaveType ? `${c.leaveType} · right-click to change date range` : (c.status === 'OB' || c.status === 'ABSENT' ? 'Right-click to change date range' : undefined)}
-                          >{display}</button>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
+              ))}</tbody>
             </table>
           )}
         </div>
@@ -514,56 +466,23 @@ export default function Home() {
       )}
 
       {rangePicker && (
-        <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setRangePicker(null); }}>
-          <section className="range-picker" role="dialog" aria-modal="true" aria-label="Select date range">
-            <div className="picker-head">
-              <div>
-                <strong>Select date range</strong>
-                <span>{rangePicker.personName} · {rangePicker.status === 'LEAVE' ? rangePicker.leaveType : rangePicker.status}</span>
-              </div>
-              <button onClick={() => setRangePicker(null)} aria-label="Close">×</button>
-            </div>
-
-            <div className="range-body">
-              <div className="range-calendars">
-                <label>
-                  <span>START DATE</span>
-                  <input type="date" value={rangePicker.startDate} onChange={e => setRangePicker(prev => prev ? { ...prev, startDate: e.target.value, endDate: e.target.value > prev.endDate ? e.target.value : prev.endDate } : prev)} />
-                </label>
-                <label>
-                  <span>END DATE</span>
-                  <input type="date" min={rangePicker.startDate} value={rangePicker.endDate} onChange={e => setRangePicker(prev => prev ? { ...prev, endDate: e.target.value } : prev)} />
-                </label>
-              </div>
-
-              <div className="duration-tool">
-                <div>
-                  <span>OR ENTER DURATION</span>
-                  <small>Useful for long leaves such as maternity leave.</small>
-                </div>
-                <input type="number" min="1" placeholder="e.g. 105" value={durationValue} onChange={e => setDurationValue(e.target.value)} />
-                <select value={durationUnit} onChange={e => setDurationUnit(e.target.value as DurationUnit)}>
-                  <option value="days">Days</option>
-                  <option value="weeks">Weeks</option>
-                  <option value="months">Months</option>
-                </select>
-                <button onClick={applyDuration}>Set end date</button>
-              </div>
-
-              <div className="range-preview">
-                <span>{rangePicker.startDate}</span>
-                <b>→</b>
-                <span>{rangePicker.endDate}</span>
-                <strong>{datesBetween(rangePicker.startDate, rangePicker.endDate).length} day{datesBetween(rangePicker.startDate, rangePicker.endDate).length === 1 ? '' : 's'}</strong>
-              </div>
-            </div>
-
-            <div className="range-actions">
-              <button onClick={() => setRangePicker(null)}>Cancel</button>
-              <button className="primary" onClick={applyRange}>Apply date range</button>
-            </div>
-          </section>
-        </div>
+        <RangePickerModal
+          assignment={rangePicker}
+          durationValue={durationValue}
+          durationUnit={durationUnit}
+          dayCount={datesBetween(rangePicker.startDate, rangePicker.endDate).length}
+          onStartChange={value => setRangePicker(prev => prev ? {
+            ...prev,
+            startDate: value,
+            endDate: value > prev.endDate ? value : prev.endDate,
+          } : prev)}
+          onEndChange={value => setRangePicker(prev => prev ? { ...prev, endDate: value } : prev)}
+          onDurationValueChange={setDurationValue}
+          onDurationUnitChange={setDurationUnit}
+          onSetEndDate={applyDuration}
+          onCancel={() => setRangePicker(null)}
+          onApply={applyRange}
+        />
       )}
     </main>
   );
