@@ -59,6 +59,7 @@ export default function Home() {
   const [offices, setOffices] = useState<Office[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<string[]>([]);
   const [date, setDate] = useState(iso(new Date()));
+  const [activeDay, setActiveDay] = useState(iso(new Date()));
   const [camp, setCamp] = useState('');
   const [office, setOffice] = useState('');
   const [search, setSearch] = useState('');
@@ -70,10 +71,11 @@ export default function Home() {
   const week = useMemo(() => weekFrom(date), [date]);
   const camps = useMemo(() => [...new Set(offices.map(o => o.camp))], [offices]);
   const officeOptions = useMemo(() => offices.filter(o => o.camp === camp).sort((a, b) => a.sortOrder - b.sortOrder), [offices, camp]);
-  const roster = useMemo(() => personnel
-    .filter(p => p.camp === camp && p.office === office)
+  const officeRoster = useMemo(() => personnel.filter(p => p.camp === camp && p.office === office), [personnel, camp, office]);
+  const roster = useMemo(() => officeRoster
     .filter(p => !search || p.fullName.toLowerCase().includes(search.toLowerCase()) || p.badgeNumber.includes(search))
-    .sort((a, b) => a.fullName.localeCompare(b.fullName)), [personnel, camp, office, search]);
+    .sort((a, b) => a.fullName.localeCompare(b.fullName)), [officeRoster, search]);
+  const activeDate = useMemo(() => new Date(`${activeDay}T12:00:00`), [activeDay]);
 
   useEffect(() => {
     fetch('/api/reference').then(async r => {
@@ -91,6 +93,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    setActiveDay(date);
+  }, [date]);
+
+  useEffect(() => {
     if (!camp || !office) return;
     loadWeek();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,9 +104,8 @@ export default function Home() {
 
   async function loadWeek() {
     if (!camp || !office || !personnel.length) return;
-    const currentRoster = personnel.filter(p => p.camp === camp && p.office === office);
     const seeded: Record<string, Cell> = {};
-    currentRoster.forEach(p => week.forEach((d, i) => seeded[key(p.badgeNumber, iso(d))] = { status: defaultStatus(i) }));
+    officeRoster.forEach(p => week.forEach((d, i) => seeded[key(p.badgeNumber, iso(d))] = { status: defaultStatus(i) }));
     setCells(seeded);
     setBusy(true);
     setMessage(`Loading ${office}...`);
@@ -114,13 +119,14 @@ export default function Home() {
         merged[key(String(rec.employee_key), String(rec.attendance_date))] = { status: rec.status, leaveType: rec.leave_type || undefined };
       }
       setCells(merged);
-      setMessage(`${currentRoster.length} personnel loaded for ${office}.`);
+      setMessage(`${officeRoster.length} personnel loaded for ${office}.`);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Unable to load attendance.');
     } finally { setBusy(false); }
   }
 
   function cycleCell(person: Personnel, day: Date) {
+    setActiveDay(iso(day));
     const employeeKey = person.badgeNumber;
     const k = key(employeeKey, iso(day));
     const current = cells[k]?.status || 'UNRECORDED';
@@ -138,7 +144,7 @@ export default function Home() {
 
   function applyPreset() {
     const next = { ...cells };
-    personnel.filter(p => p.camp === camp && p.office === office).forEach(p => week.forEach((d, i) => {
+    officeRoster.forEach(p => week.forEach((d, i) => {
       next[key(p.badgeNumber, iso(d))] = { status: defaultStatus(i) };
     }));
     setCells(next);
@@ -147,7 +153,7 @@ export default function Home() {
 
   function clearWeek() {
     const next = { ...cells };
-    personnel.filter(p => p.camp === camp && p.office === office).forEach(p => week.forEach(d => {
+    officeRoster.forEach(p => week.forEach(d => {
       next[key(p.badgeNumber, iso(d))] = { status: 'UNRECORDED' };
     }));
     setCells(next);
@@ -155,8 +161,7 @@ export default function Home() {
   }
 
   async function saveWeek() {
-    const currentRoster = personnel.filter(p => p.camp === camp && p.office === office);
-    const entries = currentRoster.flatMap(p => week.map(day => {
+    const entries = officeRoster.flatMap(p => week.map(day => {
       const c = cells[key(p.badgeNumber, iso(day))] || { status: 'UNRECORDED' as Status };
       return { employeeKey: p.badgeNumber, date: iso(day), status: c.status, leaveType: c.leaveType || null, camp, office };
     }));
@@ -174,11 +179,11 @@ export default function Home() {
 
   const totals = useMemo(() => {
     const out: Record<Status, number> = { PRESENT: 0, OFF: 0, LEAVE: 0, OB: 0, ABSENT: 0, UNRECORDED: 0 };
-    personnel.filter(p => p.camp === camp && p.office === office).forEach(p => week.forEach(d => {
-      out[(cells[key(p.badgeNumber, iso(d))]?.status || 'UNRECORDED')]++;
-    }));
+    officeRoster.forEach(p => {
+      out[(cells[key(p.badgeNumber, activeDay)]?.status || 'UNRECORDED')]++;
+    });
     return out;
-  }, [cells, personnel, camp, office, week]);
+  }, [cells, officeRoster, activeDay]);
 
   function moveWeek(days: number) {
     const d = new Date(`${date}T12:00:00`);
@@ -202,14 +207,21 @@ export default function Home() {
           <button onClick={applyPreset} disabled={busy || !office}>Apply Preset</button>
         </div>
 
-        <div className="summary">
-          <Stat label="Personnel" value={personnel.filter(p => p.camp === camp && p.office === office).length} />
-          <Stat label="Present" value={totals.PRESENT} />
-          <Stat label="Off" value={totals.OFF} />
-          <Stat label="Leave" value={totals.LEAVE} />
-          <Stat label="OB" value={totals.OB} />
-          <Stat label="Absent" value={totals.ABSENT} />
-          <Stat label="Unrecorded" value={totals.UNRECORDED} />
+        <div className="day-summary">
+          <div className="selected-day-indicator">
+            <span>SUMMARY FOR</span>
+            <strong>{activeDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong>
+            <small>Click any day header below to change the summary.</small>
+          </div>
+          <div className="summary">
+            <Stat label="Personnel" value={officeRoster.length} />
+            <Stat label="Present" value={totals.PRESENT} />
+            <Stat label="Off" value={totals.OFF} />
+            <Stat label="Leave" value={totals.LEAVE} />
+            <Stat label="OB" value={totals.OB} />
+            <Stat label="Absent" value={totals.ABSENT} />
+            <Stat label="Unrecorded" value={totals.UNRECORDED} />
+          </div>
         </div>
 
         <div className="toolbar">
@@ -224,19 +236,30 @@ export default function Home() {
         <div className="grid-wrap">
           {!office ? <div className="empty">Select a camp and office.</div> : (
             <table className="attendance-grid">
-              <thead><tr><th>Personnel</th>{week.map(d => <th key={iso(d)}>{d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}<small>{d.getMonth()+1}/{d.getDate()}</small></th>)}</tr></thead>
+              <thead><tr><th>Personnel</th>{week.map(d => {
+                const selected = iso(d) === activeDay;
+                return <th key={iso(d)} className={selected ? 'active-day-column' : ''}>
+                  <button className="day-head-button" onClick={() => setActiveDay(iso(d))}>
+                    <span>{d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span>
+                    <small>{d.getMonth()+1}/{d.getDate()}</small>
+                    {selected && <em>SELECTED</em>}
+                  </button>
+                </th>;
+              })}</tr></thead>
               <tbody>{roster.map(p => <tr key={p.badgeNumber}>
                 <td><b>{p.fullName}</b><small>{p.rank} · Badge {p.badgeNumber || '—'}</small></td>
                 {week.map(day => {
                   const c = cells[key(p.badgeNumber, iso(day))] || { status: 'UNRECORDED' as Status };
                   const display = c.status === 'LEAVE' ? leaveCode(c.leaveType) : LABEL[c.status];
-                  return <td key={iso(day)}>
+                  const selected = iso(day) === activeDay;
+                  return <td key={iso(day)} className={selected ? 'active-day-cell' : ''}>
                     <button
                       className={`status status-${c.status.toLowerCase()} ${c.status === 'LEAVE' && c.leaveType ? 'status-wide' : ''}`}
                       onClick={() => cycleCell(p, day)}
                       onContextMenu={e => {
                         if (c.status !== 'LEAVE') return;
                         e.preventDefault();
+                        setActiveDay(iso(day));
                         setLeavePicker({ employeeKey: p.badgeNumber, day, personName: p.fullName });
                       }}
                       title={c.status === 'LEAVE' && c.leaveType ? `${c.leaveType} · right-click to change leave type` : undefined}
