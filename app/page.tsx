@@ -17,6 +17,7 @@ type Personnel = {
 type Office = { camp: string; office: string; sortOrder: number };
 type Status = 'PRESENT' | 'OFF' | 'LEAVE' | 'OB' | 'ABSENT' | 'UNRECORDED';
 type Cell = { status: Status; leaveType?: string };
+type LeavePicker = { employeeKey: string; day: Date; personName: string } | null;
 
 const STATUS_ORDER: Status[] = ['PRESENT', 'OFF', 'LEAVE', 'OB', 'ABSENT', 'UNRECORDED'];
 const LABEL: Record<Status, string> = { PRESENT: 'P', OFF: 'O', LEAVE: 'L', OB: 'OB', ABSENT: 'A', UNRECORDED: '—' };
@@ -44,6 +45,15 @@ function defaultStatus(dayIndex: number): Status {
   return dayIndex === 0 || dayIndex === 6 ? 'OFF' : 'PRESENT';
 }
 
+function leaveCode(value?: string) {
+  if (!value) return 'L';
+  const match = value.match(/\(([^)]+)\)/);
+  if (match?.[1]) return match[1].toUpperCase();
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  return words.map(w => w[0]).join('').slice(0, 3).toUpperCase();
+}
+
 export default function Home() {
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
@@ -55,6 +65,7 @@ export default function Home() {
   const [cells, setCells] = useState<Record<string, Cell>>({});
   const [message, setMessage] = useState('Loading reference data...');
   const [busy, setBusy] = useState(false);
+  const [leavePicker, setLeavePicker] = useState<LeavePicker>(null);
 
   const week = useMemo(() => weekFrom(date), [date]);
   const camps = useMemo(() => [...new Set(offices.map(o => o.camp))], [offices]);
@@ -89,7 +100,7 @@ export default function Home() {
     if (!camp || !office || !personnel.length) return;
     const currentRoster = personnel.filter(p => p.camp === camp && p.office === office);
     const seeded: Record<string, Cell> = {};
-    currentRoster.forEach(p => week.forEach((d, i) => seeded[key(p.recordId, iso(d))] = { status: defaultStatus(i) }));
+    currentRoster.forEach(p => week.forEach((d, i) => seeded[key(p.badgeNumber, iso(d))] = { status: defaultStatus(i) }));
     setCells(seeded);
     setBusy(true);
     setMessage(`Loading ${office}...`);
@@ -109,24 +120,26 @@ export default function Home() {
     } finally { setBusy(false); }
   }
 
-  function cycleCell(employeeKey: string, day: Date) {
+  function cycleCell(person: Personnel, day: Date) {
+    const employeeKey = person.badgeNumber;
     const k = key(employeeKey, iso(day));
-    setCells(prev => {
-      const current = prev[k]?.status || 'UNRECORDED';
-      const next = STATUS_ORDER[(STATUS_ORDER.indexOf(current) + 1) % STATUS_ORDER.length];
-      return { ...prev, [k]: { status: next, leaveType: next === 'LEAVE' ? (prev[k]?.leaveType || leaveTypes[0]) : undefined } };
-    });
+    const current = cells[k]?.status || 'UNRECORDED';
+    const next = STATUS_ORDER[(STATUS_ORDER.indexOf(current) + 1) % STATUS_ORDER.length];
+    setCells(prev => ({ ...prev, [k]: { status: next, leaveType: next === 'LEAVE' ? prev[k]?.leaveType : undefined } }));
+    if (next === 'LEAVE') setLeavePicker({ employeeKey, day, personName: person.fullName });
   }
 
-  function setLeaveType(employeeKey: string, day: Date, leaveType: string) {
-    const k = key(employeeKey, iso(day));
+  function chooseLeaveType(leaveType: string) {
+    if (!leavePicker) return;
+    const k = key(leavePicker.employeeKey, iso(leavePicker.day));
     setCells(prev => ({ ...prev, [k]: { status: 'LEAVE', leaveType } }));
+    setLeavePicker(null);
   }
 
   function applyPreset() {
     const next = { ...cells };
     personnel.filter(p => p.camp === camp && p.office === office).forEach(p => week.forEach((d, i) => {
-      next[key(p.recordId, iso(d))] = { status: defaultStatus(i) };
+      next[key(p.badgeNumber, iso(d))] = { status: defaultStatus(i) };
     }));
     setCells(next);
     setMessage('Normal office-days preset applied.');
@@ -135,7 +148,7 @@ export default function Home() {
   function clearWeek() {
     const next = { ...cells };
     personnel.filter(p => p.camp === camp && p.office === office).forEach(p => week.forEach(d => {
-      next[key(p.recordId, iso(d))] = { status: 'UNRECORDED' };
+      next[key(p.badgeNumber, iso(d))] = { status: 'UNRECORDED' };
     }));
     setCells(next);
     setMessage('Week cleared locally. Save to commit the change.');
@@ -144,8 +157,8 @@ export default function Home() {
   async function saveWeek() {
     const currentRoster = personnel.filter(p => p.camp === camp && p.office === office);
     const entries = currentRoster.flatMap(p => week.map(day => {
-      const c = cells[key(p.recordId, iso(day))] || { status: 'UNRECORDED' as Status };
-      return { employeeKey: p.recordId, date: iso(day), status: c.status, leaveType: c.leaveType || null, camp, office };
+      const c = cells[key(p.badgeNumber, iso(day))] || { status: 'UNRECORDED' as Status };
+      return { employeeKey: p.badgeNumber, date: iso(day), status: c.status, leaveType: c.leaveType || null, camp, office };
     }));
     setBusy(true);
     setMessage(`Saving ${entries.length} attendance cells...`);
@@ -162,7 +175,7 @@ export default function Home() {
   const totals = useMemo(() => {
     const out: Record<Status, number> = { PRESENT: 0, OFF: 0, LEAVE: 0, OB: 0, ABSENT: 0, UNRECORDED: 0 };
     personnel.filter(p => p.camp === camp && p.office === office).forEach(p => week.forEach(d => {
-      out[(cells[key(p.recordId, iso(d))]?.status || 'UNRECORDED')]++;
+      out[(cells[key(p.badgeNumber, iso(d))]?.status || 'UNRECORDED')]++;
     }));
     return out;
   }, [cells, personnel, camp, office, week]);
@@ -204,7 +217,7 @@ export default function Home() {
           <strong>{week[0].toLocaleDateString()} – {week[6].toLocaleDateString()}</strong>
           <button onClick={() => moveWeek(7)}>Next ›</button>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search personnel..." />
-          <span className="hint">Click a cell to cycle P → O → L → OB → A → —</span>
+          <span className="hint">Click: P → O → L → OB → A → —</span>
           <button onClick={clearWeek}>Clear Week</button>
         </div>
 
@@ -212,13 +225,22 @@ export default function Home() {
           {!office ? <div className="empty">Select a camp and office.</div> : (
             <table className="attendance-grid">
               <thead><tr><th>Personnel</th>{week.map(d => <th key={iso(d)}>{d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}<small>{d.getMonth()+1}/{d.getDate()}</small></th>)}</tr></thead>
-              <tbody>{roster.map(p => <tr key={p.recordId}>
+              <tbody>{roster.map(p => <tr key={p.badgeNumber}>
                 <td><b>{p.fullName}</b><small>{p.rank} · Badge {p.badgeNumber || '—'}</small></td>
                 {week.map(day => {
-                  const c = cells[key(p.recordId, iso(day))] || { status: 'UNRECORDED' as Status };
+                  const c = cells[key(p.badgeNumber, iso(day))] || { status: 'UNRECORDED' as Status };
+                  const display = c.status === 'LEAVE' ? leaveCode(c.leaveType) : LABEL[c.status];
                   return <td key={iso(day)}>
-                    <button className={`status status-${c.status.toLowerCase()}`} onClick={() => cycleCell(p.recordId, day)}>{LABEL[c.status]}</button>
-                    {c.status === 'LEAVE' && <select className="leave-select" value={c.leaveType || leaveTypes[0] || ''} onChange={e => setLeaveType(p.recordId, day, e.target.value)}>{leaveTypes.map(x => <option key={x}>{x}</option>)}</select>}
+                    <button
+                      className={`status status-${c.status.toLowerCase()} ${c.status === 'LEAVE' && c.leaveType ? 'status-wide' : ''}`}
+                      onClick={() => cycleCell(p, day)}
+                      onContextMenu={e => {
+                        if (c.status !== 'LEAVE') return;
+                        e.preventDefault();
+                        setLeavePicker({ employeeKey: p.badgeNumber, day, personName: p.fullName });
+                      }}
+                      title={c.status === 'LEAVE' && c.leaveType ? `${c.leaveType} · right-click to change leave type` : undefined}
+                    >{display}</button>
                   </td>;
                 })}
               </tr>)}</tbody>
@@ -228,6 +250,22 @@ export default function Home() {
 
         <footer><span>{message}</span><button className="primary" onClick={saveWeek} disabled={busy || !office}>Save Week</button></footer>
       </section>
+
+      {leavePicker && (
+        <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setLeavePicker(null); }}>
+          <section className="leave-picker" role="dialog" aria-modal="true" aria-label="Select leave type">
+            <div className="picker-head">
+              <div><strong>Select leave type</strong><span>{leavePicker.personName} · {leavePicker.day.toLocaleDateString()}</span></div>
+              <button onClick={() => setLeavePicker(null)} aria-label="Close">×</button>
+            </div>
+            <div className="leave-options">
+              {leaveTypes.length ? leaveTypes.map(type => (
+                <button key={type} onClick={() => chooseLeaveType(type)}><b>{leaveCode(type)}</b><span>{type}</span></button>
+              )) : <p>No leave types configured.</p>}
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
