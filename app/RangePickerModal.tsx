@@ -42,6 +42,11 @@ export default function RangePickerModal({
   onCancel,
   onApply,
 }: Props) {
+  function changeStart(value: string) {
+    onStartChange(value);
+    if (value > assignment.endDate) onEndChange(value);
+  }
+
   return (
     <div className={styles.backdrop} onMouseDown={e => { if (e.target === e.currentTarget) onCancel(); }}>
       <section className={styles.modal} role="dialog" aria-modal="true" aria-label="Select date range">
@@ -57,7 +62,7 @@ export default function RangePickerModal({
           <div className={styles.dateInputs}>
             <label>
               <span>START DATE</span>
-              <input type="date" value={assignment.startDate} onChange={e => onStartChange(e.target.value)} />
+              <input type="date" value={assignment.startDate} onChange={e => changeStart(e.target.value)} />
             </label>
             <label>
               <span>END DATE</span>
@@ -65,23 +70,12 @@ export default function RangePickerModal({
             </label>
           </div>
 
-          <div className={styles.calendars}>
-            <RangeCalendar
-              label="START"
-              value={assignment.startDate}
-              rangeStart={assignment.startDate}
-              rangeEnd={assignment.endDate}
-              onChange={onStartChange}
-            />
-            <RangeCalendar
-              label="END"
-              value={assignment.endDate}
-              min={assignment.startDate}
-              rangeStart={assignment.startDate}
-              rangeEnd={assignment.endDate}
-              onChange={onEndChange}
-            />
-          </div>
+          <RangeCalendar
+            rangeStart={assignment.startDate}
+            rangeEnd={assignment.endDate}
+            onStartChange={onStartChange}
+            onEndChange={onEndChange}
+          />
 
           <div className={styles.durationTool}>
             <div>
