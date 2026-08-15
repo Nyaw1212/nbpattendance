@@ -4,12 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import styles from './RangeCalendar.module.css';
 
 type Props = {
-  label: string;
-  value: string;
   rangeStart: string;
   rangeEnd: string;
-  min?: string;
-  onChange: (value: string) => void;
+  onStartChange: (value: string) => void;
+  onEndChange: (value: string) => void;
 };
 
 function parseIso(value: string) {
@@ -25,12 +23,30 @@ function monthStart(value: string) {
   return new Date(d.getFullYear(), d.getMonth(), 1, 12);
 }
 
-export default function RangeCalendar({ label, value, rangeStart, rangeEnd, min, onChange }: Props) {
-  const [viewMonth, setViewMonth] = useState(() => monthStart(value));
+function orderedRange(a: string, b: string) {
+  return a <= b ? [a, b] as const : [b, a] as const;
+}
+
+export default function RangeCalendar({ rangeStart, rangeEnd, onStartChange, onEndChange }: Props) {
+  const [viewMonth, setViewMonth] = useState(() => monthStart(rangeStart));
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [moved, setMoved] = useState(false);
+  const [awaitingEnd, setAwaitingEnd] = useState(false);
 
   useEffect(() => {
-    setViewMonth(monthStart(value));
-  }, [value]);
+    if (!dragging) setViewMonth(monthStart(rangeStart));
+  }, [rangeStart, dragging]);
+
+  useEffect(() => {
+    const stop = () => {
+      if (!dragging) return;
+      setDragging(false);
+      if (moved) setAwaitingEnd(false);
+    };
+    window.addEventListener('mouseup', stop);
+    return () => window.removeEventListener('mouseup', stop);
+  }, [dragging, moved]);
 
   const days = useMemo(() => {
     const first = new Date(viewMonth);
@@ -47,14 +63,52 @@ export default function RangeCalendar({ label, value, rangeStart, rangeEnd, min,
     setViewMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + offset, 1, 12));
   }
 
-  const minDate = min ? parseIso(min) : null;
+  function setRange(a: string, b: string) {
+    const [start, end] = orderedRange(a, b);
+    onStartChange(start);
+    onEndChange(end);
+  }
+
+  function beginSelection(dayIso: string) {
+    if (awaitingEnd) {
+      const existingAnchor = rangeStart;
+      setAnchor(existingAnchor);
+      setRange(existingAnchor, dayIso);
+      setDragging(true);
+      setMoved(dayIso !== existingAnchor);
+      return;
+    }
+
+    setAnchor(dayIso);
+    onStartChange(dayIso);
+    onEndChange(dayIso);
+    setDragging(true);
+    setMoved(false);
+    setAwaitingEnd(true);
+  }
+
+  function extendSelection(dayIso: string) {
+    if (!dragging || !anchor) return;
+    setRange(anchor, dayIso);
+    if (dayIso !== anchor) setMoved(true);
+  }
+
+  function finishSelection() {
+    if (!dragging) return;
+    setDragging(false);
+    if (moved || awaitingEnd) setAwaitingEnd(false);
+  }
+
   const start = parseIso(rangeStart);
   const end = parseIso(rangeEnd);
 
   return (
-    <div className={styles.calendar}>
+    <div className={styles.calendar} onMouseLeave={() => { if (dragging) setMoved(true); }}>
       <div className={styles.top}>
-        <span>{label}</span>
+        <div>
+          <span>SELECT RANGE</span>
+          <small>{awaitingEnd ? 'Choose the end date, or drag across the range.' : 'Click a start date, then an end date — or click and drag.'}</small>
+        </div>
         <div className={styles.nav}>
           <button type="button" onClick={() => moveMonth(-1)} aria-label="Previous month">‹</button>
           <strong>{viewMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</strong>
@@ -68,21 +122,41 @@ export default function RangeCalendar({ label, value, rangeStart, rangeEnd, min,
         {days.map(day => {
           const dayIso = iso(day);
           const outside = day.getMonth() !== viewMonth.getMonth();
-          const selected = dayIso === value;
+          const isStart = dayIso === rangeStart;
+          const isEnd = dayIso === rangeEnd;
           const inRange = day >= start && day <= end;
-          const disabled = !!minDate && day < minDate;
-          const classes = [outside ? styles.outside : '', inRange ? styles.inRange : '', selected ? styles.selected : ''].filter(Boolean).join(' ');
+          const classes = [
+            outside ? styles.outside : '',
+            inRange ? styles.inRange : '',
+            isStart ? styles.rangeStart : '',
+            isEnd ? styles.rangeEnd : '',
+          ].filter(Boolean).join(' ');
+
           return (
-            <button type="button" key={dayIso} disabled={disabled} className={classes} onClick={() => onChange(dayIso)}>
-              {day.getDate()}
-            </button>
+            <button
+              type="button"
+              key={dayIso}
+              className={classes}
+              onMouseDown={e => {
+                e.preventDefault();
+                beginSelection(dayIso);
+              }}
+              onMouseEnter={() => extendSelection(dayIso)}
+              onMouseUp={finishSelection}
+            >{day.getDate()}</button>
           );
         })}
       </div>
-      <button type="button" className={styles.today} onClick={() => {
-        const today = iso(new Date());
-        if (!min || today >= min) onChange(today);
-      }}>Today</button>
+      <div className={styles.bottom}>
+        <button type="button" className={styles.today} onClick={() => {
+          const today = iso(new Date());
+          onStartChange(today);
+          onEndChange(today);
+          setViewMonth(monthStart(today));
+          setAwaitingEnd(true);
+        }}>Today</button>
+        <span>{rangeStart} → {rangeEnd}</span>
+      </div>
     </div>
   );
 }
