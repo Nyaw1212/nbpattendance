@@ -17,34 +17,554 @@ type Personnel = {
 type Office = { camp: string; office: string; sortOrder: number };
 type Status = 'PRESENT' | 'OFF' | 'LEAVE' | 'OB' | 'ABSENT' | 'UNRECORDED';
 type Cell = { status: Status; leaveType?: string };
-type LeavePicker = { employeeKey: string; day: Date; personName: string } | null;
+type LeavePicker = { person: Personnel; day: Date } | null;
+type RangeAssignment = {
+  employeeKey: string;
+  personName: string;
+  status: Status;
+  leaveType?: string;
+  startDate: string;
+  endDate: string;
+};
+type RangePicker = RangeAssignment | null;
+type DurationUnit = 'days' | 'weeks' | 'months';
 
 const STATUS_ORDER: Status[] = ['PRESENT', 'OFF', 'LEAVE', 'OB', 'ABSENT', 'UNRECORDED'];
-const LABEL: Record<Status, string> = { PRESENT: 'P', OFF: 'O', LEAVE: 'L', OB: 'OB', ABSENT: 'A', UNRECORDED: '—' };
+const LABEL: Record<Status, string> = {
+  PRESENT: 'P',
+  OFF: 'O',
+  LEAVE: 'L',
+  OB: 'OB',
+  ABSENT: 'A',
+  UNRECORDED: '—',
+};
 
-function iso(d: Date) { return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); }
-function weekFrom(value: string) { const source = new Date(`${value}T12:00:00`); const sunday = new Date(source); sunday.setDate(source.getDate() - source.getDay()); return Array.from({ length: 7 }, (_, i) => { const d = new Date(sunday); d.setDate(sunday.getDate() + i); return d; }); }
-function key(employeeKey: string, date: string) { return `${employeeKey}|${date}`; }
-function defaultStatus(dayIndex: number): Status { return dayIndex === 0 || dayIndex === 6 ? 'OFF' : 'PRESENT'; }
-function leaveCode(value?: string) { if (!value) return 'L'; const match = value.match(/\(([^)]+)\)/); if (match?.[1]) return match[1].toUpperCase(); const words = value.trim().split(/\s+/).filter(Boolean); if (words.length === 1) return words[0].slice(0, 3).toUpperCase(); return words.map(w => w[0]).join('').slice(0, 3).toUpperCase(); }
-function caseLabel(cell: Cell) { if (cell.status === 'LEAVE') return cell.leaveType ? leaveCode(cell.leaveType) : 'LEAVE'; return cell.status; }
+function iso(d: Date) {
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+}
+
+function parseIso(value: string) {
+  return new Date(`${value}T12:00:00`);
+}
+
+function weekFrom(value: string) {
+  const source = parseIso(value);
+  const sunday = new Date(source);
+  sunday.setDate(source.getDate() - source.getDay());
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(sunday);
+    d.setDate(sunday.getDate() + i);
+    return d;
+  });
+}
+
+function datesBetween(startDate: string, endDate: string) {
+  const start = parseIso(startDate);
+  const end = parseIso(endDate);
+  if (end < start) return [];
+  const out: string[] = [];
+  const d = new Date(start);
+  while (d <= end) {
+    out.push(iso(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+function addDuration(startDate: string, amount: number, unit: DurationUnit) {
+  const d = parseIso(startDate);
+  const safeAmount = Math.max(1, Math.floor(amount || 1));
+  if (unit === 'days') d.setDate(d.getDate() + safeAmount - 1);
+  if (unit === 'weeks') d.setDate(d.getDate() + safeAmount * 7 - 1);
+  if (unit === 'months') {
+    const originalDay = d.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + safeAmount);
+    d.setDate(Math.min(originalDay, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+    d.setDate(d.getDate() - 1);
+  }
+  return iso(d);
+}
+
+function key(employeeKey: string, date: string) {
+  return `${employeeKey}|${date}`;
+}
+
+function defaultStatus(dayIndex: number): Status {
+  return dayIndex === 0 || dayIndex === 6 ? 'OFF' : 'PRESENT';
+}
+
+function leaveCode(value?: string) {
+  if (!value) return 'L';
+  const match = value.match(/\(([^)]+)\)/);
+  if (match?.[1]) return match[1].toUpperCase();
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  return words.map(w => w[0]).join('').slice(0, 3).toUpperCase();
+}
+
+function caseLabel(cell: Cell) {
+  if (cell.status === 'LEAVE') return cell.leaveType ? leaveCode(cell.leaveType) : 'LEAVE';
+  return cell.status;
+}
 
 export default function Home() {
-  const [personnel, setPersonnel] = useState<Personnel[]>([]); const [offices, setOffices] = useState<Office[]>([]); const [leaveTypes, setLeaveTypes] = useState<string[]>([]); const [date, setDate] = useState(iso(new Date())); const [activeDay, setActiveDay] = useState(iso(new Date())); const [camp, setCamp] = useState(''); const [office, setOffice] = useState(''); const [search, setSearch] = useState(''); const [cells, setCells] = useState<Record<string, Cell>>({}); const [message, setMessage] = useState('Loading reference data...'); const [busy, setBusy] = useState(false); const [leavePicker, setLeavePicker] = useState<LeavePicker>(null);
-  const week = useMemo(() => weekFrom(date), [date]); const camps = useMemo(() => [...new Set(offices.map(o => o.camp))], [offices]); const officeOptions = useMemo(() => offices.filter(o => o.camp === camp).sort((a, b) => a.sortOrder - b.sortOrder), [offices, camp]); const officeRoster = useMemo(() => personnel.filter(p => p.camp === camp && p.office === office), [personnel, camp, office]); const roster = useMemo(() => officeRoster.filter(p => !search || p.fullName.toLowerCase().includes(search.toLowerCase()) || p.badgeNumber.includes(search)).sort((a, b) => a.fullName.localeCompare(b.fullName)), [officeRoster, search]); const activeDate = useMemo(() => new Date(`${activeDay}T12:00:00`), [activeDay]);
-  const abnormalCases = useMemo(() => officeRoster.map(person => ({ person, cell: cells[key(person.badgeNumber, activeDay)] || { status: 'UNRECORDED' as Status } })).filter(item => item.cell.status !== 'PRESENT' && item.cell.status !== 'OFF').sort((a, b) => a.cell.status.localeCompare(b.cell.status) || a.person.fullName.localeCompare(b.person.fullName)), [officeRoster, cells, activeDay]);
-  const abnormalCounts = useMemo(() => { const counts = { LEAVE: 0, OB: 0, ABSENT: 0, UNRECORDED: 0 }; abnormalCases.forEach(({ cell }) => { if (cell.status in counts) counts[cell.status as keyof typeof counts]++; }); return counts; }, [abnormalCases]);
-  useEffect(() => { fetch('/api/reference').then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Unable to load reference data.'); setPersonnel(data.personnel || []); setOffices(data.offices || []); setLeaveTypes(data.leaveTypes || []); setMessage(`${data.personnel?.length || 0} personnel available.`); const firstCamp = data.offices?.[0]?.camp || ''; setCamp(firstCamp); setOffice(data.offices?.find((x: Office) => x.camp === firstCamp)?.office || ''); }).catch(e => setMessage(e.message)); }, []);
-  useEffect(() => { setActiveDay(date); }, [date]);
-  useEffect(() => { if (!camp || !office) return; loadWeek(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [camp, office, date, personnel.length]);
-  async function loadWeek() { if (!camp || !office || !personnel.length) return; const seeded: Record<string, Cell> = {}; officeRoster.forEach(p => week.forEach((d, i) => seeded[key(p.badgeNumber, iso(d))] = { status: defaultStatus(i) })); setCells(seeded); setBusy(true); setMessage(`Loading ${office}...`); try { const params = new URLSearchParams({ weekStart: iso(week[0]), weekEnd: iso(week[6]), camp, office }); const r = await fetch(`/api/attendance?${params}`); const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Unable to load attendance.'); const merged = { ...seeded }; for (const rec of data.records || []) merged[key(String(rec.employee_key), String(rec.attendance_date))] = { status: rec.status, leaveType: rec.leave_type || undefined }; setCells(merged); setMessage(`${officeRoster.length} personnel loaded for ${office}.`); } catch (e) { setMessage(e instanceof Error ? e.message : 'Unable to load attendance.'); } finally { setBusy(false); } }
-  function cycleCell(person: Personnel, day: Date) { setActiveDay(iso(day)); const k = key(person.badgeNumber, iso(day)); const current = cells[k]?.status || 'UNRECORDED'; const next = STATUS_ORDER[(STATUS_ORDER.indexOf(current) + 1) % STATUS_ORDER.length]; setCells(prev => ({ ...prev, [k]: { status: next, leaveType: next === 'LEAVE' ? prev[k]?.leaveType : undefined } })); if (next === 'LEAVE') setLeavePicker({ employeeKey: person.badgeNumber, day, personName: person.fullName }); }
-  function chooseLeaveType(leaveType: string) { if (!leavePicker) return; const k = key(leavePicker.employeeKey, iso(leavePicker.day)); setCells(prev => ({ ...prev, [k]: { status: 'LEAVE', leaveType } })); setLeavePicker(null); }
-  function applyPreset() { const next = { ...cells }; officeRoster.forEach(p => week.forEach((d, i) => next[key(p.badgeNumber, iso(d))] = { status: defaultStatus(i) })); setCells(next); setMessage('Normal office-days preset applied.'); }
-  function clearWeek() { const next = { ...cells }; officeRoster.forEach(p => week.forEach(d => next[key(p.badgeNumber, iso(d))] = { status: 'UNRECORDED' })); setCells(next); setMessage('Week cleared locally. Save to commit the change.'); }
-  async function saveWeek() { const entries = officeRoster.flatMap(p => week.map(day => { const c = cells[key(p.badgeNumber, iso(day))] || { status: 'UNRECORDED' as Status }; return { employeeKey: p.badgeNumber, date: iso(day), status: c.status, leaveType: c.leaveType || null, camp, office }; })); setBusy(true); setMessage(`Saving ${entries.length} attendance cells...`); try { const r = await fetch('/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entries }) }); const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Unable to save attendance.'); setMessage(`${data.saved} attendance cells saved.`); } catch (e) { setMessage(e instanceof Error ? e.message : 'Unable to save attendance.'); } finally { setBusy(false); } }
-  function moveWeek(days: number) { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate() + days); setDate(iso(d)); }
-  return <main className="page-shell"><section className="app-card"><header className="app-head"><div><h1>Attendance Center</h1><p>Weekly office attendance recorder</p></div></header><div className="controls"><label><span>WEEK CONTAINING</span><input type="date" value={date} onChange={e => setDate(e.target.value)} /></label><label><span>CAMP</span><select value={camp} onChange={e => { setCamp(e.target.value); setOffice(''); }}><option value="">Select camp</option>{camps.map(c => <option key={c}>{c}</option>)}</select></label><label><span>OFFICE</span><select value={office} onChange={e => setOffice(e.target.value)}><option value="">Select office</option>{officeOptions.map(o => <option key={o.office}>{o.office}</option>)}</select></label><label><span>DUTY PRESET</span><select><option>Normal Office Days</option></select></label><button className="primary" onClick={loadWeek} disabled={busy}>Load Week</button><button onClick={applyPreset} disabled={busy || !office}>Apply Preset</button></div>
-  <section className="daily-focus"><div className="date-picker-panel"><div className="panel-label">DATE</div><div className="day-tiles">{week.map(day => { const selected = iso(day) === activeDay; return <button key={iso(day)} className={`day-tile ${selected ? 'selected' : ''}`} onClick={() => setActiveDay(iso(day))}><span>{day.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span><strong>{day.getDate()}</strong><small>{day.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</small></button>; })}</div></div><div className="abnormal-panel"><div className="abnormal-head"><div><span>SUMMARY OF PERSONNEL STATUSES / MOVEMENT</span><strong>{activeDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong></div><div className="case-count">{abnormalCases.length}</div></div><div className="case-chips"><span>Leave <b>{abnormalCounts.LEAVE}</b></span><span>OB <b>{abnormalCounts.OB}</b></span><span>Absent <b>{abnormalCounts.ABSENT}</b></span><span>Unrecorded <b>{abnormalCounts.UNRECORDED}</b></span></div><div className="case-list">{abnormalCases.length === 0 ? <div className="no-cases">No personnel statuses or movements to show for this day.</div> : abnormalCases.map(({ person, cell }) => <div className="case-row" key={person.badgeNumber}><div><b>{person.fullName}</b><small>{person.rank} · Badge {person.badgeNumber}</small></div><span className={`case-status case-${cell.status.toLowerCase()}`} title={cell.leaveType || cell.status}>{caseLabel(cell)}</span></div>)}</div></div></section>
-  <div className="toolbar"><button onClick={() => moveWeek(-7)}>‹ Previous</button><strong>{week[0].toLocaleDateString()} – {week[6].toLocaleDateString()}</strong><button onClick={() => moveWeek(7)}>Next ›</button><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search personnel..." /><span className="hint">P → O → L → OB → A → —</span><button onClick={clearWeek}>Clear Week</button></div><div className="grid-wrap">{!office ? <div className="empty">Select a camp and office.</div> : <table className="attendance-grid"><thead><tr><th>Personnel</th>{week.map(d => <th key={iso(d)} className={iso(d) === activeDay ? 'active-day-column' : ''}><button className="day-head-button" onClick={() => setActiveDay(iso(d))}><span>{d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span><small>{d.getMonth()+1}/{d.getDate()}</small></button></th>)}</tr></thead><tbody>{roster.map(p => <tr key={p.badgeNumber}><td><b>{p.fullName}</b><small>{p.rank} · Badge {p.badgeNumber || '—'}</small></td>{week.map(day => { const c = cells[key(p.badgeNumber, iso(day))] || { status: 'UNRECORDED' as Status }; const display = c.status === 'LEAVE' ? leaveCode(c.leaveType) : LABEL[c.status]; return <td key={iso(day)} className={iso(day) === activeDay ? 'active-day-cell' : ''}><button className={`status status-${c.status.toLowerCase()} ${c.status === 'LEAVE' && c.leaveType ? 'status-wide' : ''}`} onClick={() => cycleCell(p, day)} onContextMenu={e => { if (c.status !== 'LEAVE') return; e.preventDefault(); setActiveDay(iso(day)); setLeavePicker({ employeeKey: p.badgeNumber, day, personName: p.fullName }); }} title={c.status === 'LEAVE' && c.leaveType ? `${c.leaveType} · right-click to change leave type` : undefined}>{display}</button></td>; })}</tr>)}</tbody></table>}</div><footer><span>{message}</span><button className="primary" onClick={saveWeek} disabled={busy || !office}>Save Week</button></footer></section>{leavePicker && <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setLeavePicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true"><div className="picker-head"><div><strong>Select leave type</strong><span>{leavePicker.personName} · {leavePicker.day.toLocaleDateString()}</span></div><button onClick={() => setLeavePicker(null)}>×</button></div><div className="leave-options">{leaveTypes.length ? leaveTypes.map(type => <button key={type} onClick={() => chooseLeaveType(type)}><b>{leaveCode(type)}</b><span>{type}</span></button>) : <p>No leave types configured.</p>}</div></section></div>}</main>;
+  const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<string[]>([]);
+  const [date, setDate] = useState(iso(new Date()));
+  const [activeDay, setActiveDay] = useState(iso(new Date()));
+  const [camp, setCamp] = useState('');
+  const [office, setOffice] = useState('');
+  const [search, setSearch] = useState('');
+  const [cells, setCells] = useState<Record<string, Cell>>({});
+  const [message, setMessage] = useState('Loading reference data...');
+  const [busy, setBusy] = useState(false);
+  const [leavePicker, setLeavePicker] = useState<LeavePicker>(null);
+  const [rangePicker, setRangePicker] = useState<RangePicker>(null);
+  const [pendingRanges, setPendingRanges] = useState<RangeAssignment[]>([]);
+  const [durationValue, setDurationValue] = useState('');
+  const [durationUnit, setDurationUnit] = useState<DurationUnit>('days');
+
+  const week = useMemo(() => weekFrom(date), [date]);
+  const camps = useMemo(() => [...new Set(offices.map(o => o.camp))], [offices]);
+  const officeOptions = useMemo(
+    () => offices.filter(o => o.camp === camp).sort((a, b) => a.sortOrder - b.sortOrder),
+    [offices, camp],
+  );
+  const officeRoster = useMemo(
+    () => personnel.filter(p => p.camp === camp && p.office === office),
+    [personnel, camp, office],
+  );
+  const roster = useMemo(
+    () => officeRoster
+      .filter(p => !search || p.fullName.toLowerCase().includes(search.toLowerCase()) || p.badgeNumber.includes(search))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName)),
+    [officeRoster, search],
+  );
+  const activeDate = useMemo(() => parseIso(activeDay), [activeDay]);
+
+  const abnormalCases = useMemo(
+    () => officeRoster
+      .map(person => ({ person, cell: cells[key(person.badgeNumber, activeDay)] || { status: 'UNRECORDED' as Status } }))
+      .filter(item => item.cell.status !== 'PRESENT' && item.cell.status !== 'OFF')
+      .sort((a, b) => a.cell.status.localeCompare(b.cell.status) || a.person.fullName.localeCompare(b.person.fullName)),
+    [officeRoster, cells, activeDay],
+  );
+
+  const abnormalCounts = useMemo(() => {
+    const counts = { LEAVE: 0, OB: 0, ABSENT: 0, UNRECORDED: 0 };
+    abnormalCases.forEach(({ cell }) => {
+      if (cell.status in counts) counts[cell.status as keyof typeof counts]++;
+    });
+    return counts;
+  }, [abnormalCases]);
+
+  useEffect(() => {
+    fetch('/api/reference').then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Unable to load reference data.');
+      setPersonnel(data.personnel || []);
+      setOffices(data.offices || []);
+      setLeaveTypes(data.leaveTypes || []);
+      setMessage(`${data.personnel?.length || 0} personnel available.`);
+      const firstCamp = data.offices?.[0]?.camp || '';
+      setCamp(firstCamp);
+      setOffice(data.offices?.find((x: Office) => x.camp === firstCamp)?.office || '');
+    }).catch(e => setMessage(e.message));
+  }, []);
+
+  useEffect(() => {
+    setActiveDay(date);
+  }, [date]);
+
+  useEffect(() => {
+    if (!camp || !office) return;
+    loadWeek();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camp, office, date, personnel.length]);
+
+  function overlayPendingRanges(base: Record<string, Cell>) {
+    const next = { ...base };
+    for (const assignment of pendingRanges) {
+      for (const day of datesBetween(assignment.startDate, assignment.endDate)) {
+        next[key(assignment.employeeKey, day)] = {
+          status: assignment.status,
+          leaveType: assignment.leaveType,
+        };
+      }
+    }
+    return next;
+  }
+
+  async function loadWeek() {
+    if (!camp || !office || !personnel.length) return;
+    const seeded: Record<string, Cell> = {};
+    officeRoster.forEach(p => week.forEach((d, i) => {
+      seeded[key(p.badgeNumber, iso(d))] = { status: defaultStatus(i) };
+    }));
+    setCells(overlayPendingRanges(seeded));
+    setBusy(true);
+    setMessage(`Loading ${office}...`);
+    try {
+      const params = new URLSearchParams({
+        weekStart: iso(week[0]),
+        weekEnd: iso(week[6]),
+        camp,
+        office,
+      });
+      const r = await fetch(`/api/attendance?${params}`);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Unable to load attendance.');
+      const merged = { ...seeded };
+      for (const rec of data.records || []) {
+        merged[key(String(rec.employee_key), String(rec.attendance_date))] = {
+          status: rec.status,
+          leaveType: rec.leave_type || undefined,
+        };
+      }
+      setCells(overlayPendingRanges(merged));
+      setMessage(`${officeRoster.length} personnel loaded for ${office}.`);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Unable to load attendance.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openRangePicker(person: Personnel, day: Date, status: Status, leaveType?: string) {
+    const selected = iso(day);
+    setDurationValue('');
+    setDurationUnit('days');
+    setRangePicker({
+      employeeKey: person.badgeNumber,
+      personName: person.fullName,
+      status,
+      leaveType,
+      startDate: selected,
+      endDate: selected,
+    });
+  }
+
+  function cycleCell(person: Personnel, day: Date) {
+    setActiveDay(iso(day));
+    const k = key(person.badgeNumber, iso(day));
+    const current = cells[k]?.status || 'UNRECORDED';
+    const next = STATUS_ORDER[(STATUS_ORDER.indexOf(current) + 1) % STATUS_ORDER.length];
+
+    setCells(prev => ({
+      ...prev,
+      [k]: {
+        status: next,
+        leaveType: next === 'LEAVE' ? prev[k]?.leaveType : undefined,
+      },
+    }));
+
+    if (next === 'LEAVE') {
+      setLeavePicker({ person, day });
+    } else if (next === 'OB' || next === 'ABSENT') {
+      openRangePicker(person, day, next);
+    }
+  }
+
+  function chooseLeaveType(leaveType: string) {
+    if (!leavePicker) return;
+    const { person, day } = leavePicker;
+    const k = key(person.badgeNumber, iso(day));
+    setCells(prev => ({ ...prev, [k]: { status: 'LEAVE', leaveType } }));
+    setLeavePicker(null);
+    openRangePicker(person, day, 'LEAVE', leaveType);
+  }
+
+  function applyDuration() {
+    if (!rangePicker || !durationValue) return;
+    const amount = Number(durationValue);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    setRangePicker(prev => prev ? {
+      ...prev,
+      endDate: addDuration(prev.startDate, amount, durationUnit),
+    } : prev);
+  }
+
+  function applyRange() {
+    if (!rangePicker) return;
+    const days = datesBetween(rangePicker.startDate, rangePicker.endDate);
+    if (!days.length) {
+      setMessage('End date must be the same as or after the start date.');
+      return;
+    }
+
+    setCells(prev => {
+      const next = { ...prev };
+      for (const day of days) {
+        next[key(rangePicker.employeeKey, day)] = {
+          status: rangePicker.status,
+          leaveType: rangePicker.leaveType,
+        };
+      }
+      return next;
+    });
+
+    setPendingRanges(prev => [
+      ...prev.filter(r => !(r.employeeKey === rangePicker.employeeKey && r.status === rangePicker.status && r.leaveType === rangePicker.leaveType)),
+      rangePicker,
+    ]);
+    setActiveDay(rangePicker.startDate);
+    setMessage(`${rangePicker.status === 'LEAVE' ? rangePicker.leaveType || 'Leave' : rangePicker.status} applied from ${rangePicker.startDate} to ${rangePicker.endDate}. Save Week to commit.`);
+    setRangePicker(null);
+  }
+
+  function applyPreset() {
+    const next = { ...cells };
+    officeRoster.forEach(p => week.forEach((d, i) => {
+      next[key(p.badgeNumber, iso(d))] = { status: defaultStatus(i) };
+    }));
+    setCells(next);
+    setMessage('Normal office-days preset applied.');
+  }
+
+  function clearWeek() {
+    const next = { ...cells };
+    officeRoster.forEach(p => week.forEach(d => {
+      next[key(p.badgeNumber, iso(d))] = { status: 'UNRECORDED' };
+    }));
+    setCells(next);
+    setMessage('Week cleared locally. Save to commit the change.');
+  }
+
+  async function saveWeek() {
+    const byKey = new Map<string, { employeeKey: string; date: string; status: Status; leaveType: string | null; camp: string; office: string }>();
+
+    for (const p of officeRoster) {
+      for (const day of week) {
+        const dayIso = iso(day);
+        const c = cells[key(p.badgeNumber, dayIso)] || { status: 'UNRECORDED' as Status };
+        byKey.set(key(p.badgeNumber, dayIso), {
+          employeeKey: p.badgeNumber,
+          date: dayIso,
+          status: c.status,
+          leaveType: c.leaveType || null,
+          camp,
+          office,
+        });
+      }
+    }
+
+    for (const assignment of pendingRanges) {
+      for (const dayIso of datesBetween(assignment.startDate, assignment.endDate)) {
+        byKey.set(key(assignment.employeeKey, dayIso), {
+          employeeKey: assignment.employeeKey,
+          date: dayIso,
+          status: assignment.status,
+          leaveType: assignment.leaveType || null,
+          camp,
+          office,
+        });
+      }
+    }
+
+    const entries = [...byKey.values()];
+    setBusy(true);
+    setMessage(`Saving ${entries.length} attendance entries...`);
+    try {
+      const r = await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Unable to save attendance.');
+      setPendingRanges([]);
+      setMessage(`${data.saved} attendance entries saved.`);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Unable to save attendance.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function moveWeek(days: number) {
+    const d = parseIso(date);
+    d.setDate(d.getDate() + days);
+    setDate(iso(d));
+  }
+
+  return (
+    <main className="page-shell">
+      <section className="app-card">
+        <header className="app-head">
+          <div><h1>Attendance Center</h1><p>Weekly office attendance recorder</p></div>
+        </header>
+
+        <div className="controls">
+          <label><span>WEEK CONTAINING</span><input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
+          <label><span>CAMP</span><select value={camp} onChange={e => { setCamp(e.target.value); setOffice(''); }}><option value="">Select camp</option>{camps.map(c => <option key={c}>{c}</option>)}</select></label>
+          <label><span>OFFICE</span><select value={office} onChange={e => setOffice(e.target.value)}><option value="">Select office</option>{officeOptions.map(o => <option key={o.office}>{o.office}</option>)}</select></label>
+          <label><span>DUTY PRESET</span><select><option>Normal Office Days</option></select></label>
+          <button className="primary" onClick={loadWeek} disabled={busy}>Load Week</button>
+          <button onClick={applyPreset} disabled={busy || !office}>Apply Preset</button>
+        </div>
+
+        <section className="daily-focus">
+          <div className="abnormal-panel">
+            <div className="abnormal-head">
+              <div>
+                <span>SUMMARY OF PERSONNEL STATUSES / MOVEMENT</span>
+                <strong>{activeDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong>
+              </div>
+              <div className="case-count">{abnormalCases.length}</div>
+            </div>
+            <div className="case-chips">
+              <span>Leave <b>{abnormalCounts.LEAVE}</b></span>
+              <span>OB <b>{abnormalCounts.OB}</b></span>
+              <span>Absent <b>{abnormalCounts.ABSENT}</b></span>
+              <span>Unrecorded <b>{abnormalCounts.UNRECORDED}</b></span>
+            </div>
+            <div className="case-list">
+              {abnormalCases.length === 0 ? (
+                <div className="no-cases">No personnel statuses or movements to show for this day.</div>
+              ) : abnormalCases.map(({ person, cell }) => (
+                <div className="case-row" key={person.badgeNumber}>
+                  <div><b>{person.fullName}</b><small>{person.rank} · Badge {person.badgeNumber}</small></div>
+                  <span className={`case-status case-${cell.status.toLowerCase()}`} title={cell.leaveType || cell.status}>{caseLabel(cell)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <div className="toolbar">
+          <button onClick={() => moveWeek(-7)}>‹ Previous</button>
+          <strong>{week[0].toLocaleDateString()} – {week[6].toLocaleDateString()}</strong>
+          <button onClick={() => moveWeek(7)}>Next ›</button>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search personnel..." />
+          <span className="hint">P → O → L → OB → A → —</span>
+          <button onClick={clearWeek}>Clear Week</button>
+        </div>
+
+        <div className="grid-wrap">
+          {!office ? <div className="empty">Select a camp and office.</div> : (
+            <table className="attendance-grid">
+              <thead>
+                <tr>
+                  <th>Personnel</th>
+                  {week.map(d => (
+                    <th key={iso(d)} className={iso(d) === activeDay ? 'active-day-column' : ''}>
+                      <button className="day-head-button" onClick={() => setActiveDay(iso(d))}>
+                        <span>{d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span>
+                        <small>{d.getMonth() + 1}/{d.getDate()}</small>
+                      </button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {roster.map(p => (
+                  <tr key={p.badgeNumber}>
+                    <td><b>{p.fullName}</b><small>{p.rank} · Badge {p.badgeNumber || '—'}</small></td>
+                    {week.map(day => {
+                      const c = cells[key(p.badgeNumber, iso(day))] || { status: 'UNRECORDED' as Status };
+                      const display = c.status === 'LEAVE' ? leaveCode(c.leaveType) : LABEL[c.status];
+                      return (
+                        <td key={iso(day)} className={iso(day) === activeDay ? 'active-day-cell' : ''}>
+                          <button
+                            className={`status status-${c.status.toLowerCase()} ${c.status === 'LEAVE' && c.leaveType ? 'status-wide' : ''}`}
+                            onClick={() => cycleCell(p, day)}
+                            onContextMenu={e => {
+                              e.preventDefault();
+                              setActiveDay(iso(day));
+                              if (c.status === 'LEAVE') {
+                                openRangePicker(p, day, 'LEAVE', c.leaveType);
+                              } else if (c.status === 'OB' || c.status === 'ABSENT') {
+                                openRangePicker(p, day, c.status);
+                              }
+                            }}
+                            title={c.status === 'LEAVE' && c.leaveType ? `${c.leaveType} · right-click to change date range` : (c.status === 'OB' || c.status === 'ABSENT' ? 'Right-click to change date range' : undefined)}
+                          >{display}</button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <footer>
+          <span>{message}{pendingRanges.length ? ` · ${pendingRanges.length} range${pendingRanges.length === 1 ? '' : 's'} pending` : ''}</span>
+          <button className="primary" onClick={saveWeek} disabled={busy || !office}>Save Week</button>
+        </footer>
+      </section>
+
+      {leavePicker && (
+        <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setLeavePicker(null); }}>
+          <section className="leave-picker" role="dialog" aria-modal="true" aria-label="Select leave type">
+            <div className="picker-head">
+              <div><strong>Select leave type</strong><span>{leavePicker.person.fullName} · {leavePicker.day.toLocaleDateString()}</span></div>
+              <button onClick={() => setLeavePicker(null)} aria-label="Close">×</button>
+            </div>
+            <div className="leave-options">
+              {leaveTypes.length ? leaveTypes.map(type => (
+                <button key={type} onClick={() => chooseLeaveType(type)}><b>{leaveCode(type)}</b><span>{type}</span></button>
+              )) : <p>No leave types configured.</p>}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {rangePicker && (
+        <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setRangePicker(null); }}>
+          <section className="range-picker" role="dialog" aria-modal="true" aria-label="Select date range">
+            <div className="picker-head">
+              <div>
+                <strong>Select date range</strong>
+                <span>{rangePicker.personName} · {rangePicker.status === 'LEAVE' ? rangePicker.leaveType : rangePicker.status}</span>
+              </div>
+              <button onClick={() => setRangePicker(null)} aria-label="Close">×</button>
+            </div>
+
+            <div className="range-body">
+              <div className="range-calendars">
+                <label>
+                  <span>START DATE</span>
+                  <input type="date" value={rangePicker.startDate} onChange={e => setRangePicker(prev => prev ? { ...prev, startDate: e.target.value, endDate: e.target.value > prev.endDate ? e.target.value : prev.endDate } : prev)} />
+                </label>
+                <label>
+                  <span>END DATE</span>
+                  <input type="date" min={rangePicker.startDate} value={rangePicker.endDate} onChange={e => setRangePicker(prev => prev ? { ...prev, endDate: e.target.value } : prev)} />
+                </label>
+              </div>
+
+              <div className="duration-tool">
+                <div>
+                  <span>OR ENTER DURATION</span>
+                  <small>Useful for long leaves such as maternity leave.</small>
+                </div>
+                <input type="number" min="1" placeholder="e.g. 105" value={durationValue} onChange={e => setDurationValue(e.target.value)} />
+                <select value={durationUnit} onChange={e => setDurationUnit(e.target.value as DurationUnit)}>
+                  <option value="days">Days</option>
+                  <option value="weeks">Weeks</option>
+                  <option value="months">Months</option>
+                </select>
+                <button onClick={applyDuration}>Set end date</button>
+              </div>
+
+              <div className="range-preview">
+                <span>{rangePicker.startDate}</span>
+                <b>→</b>
+                <span>{rangePicker.endDate}</span>
+                <strong>{datesBetween(rangePicker.startDate, rangePicker.endDate).length} day{datesBetween(rangePicker.startDate, rangePicker.endDate).length === 1 ? '' : 's'}</strong>
+              </div>
+            </div>
+
+            <div className="range-actions">
+              <button onClick={() => setRangePicker(null)}>Cancel</button>
+              <button className="primary" onClick={applyRange}>Apply date range</button>
+            </div>
+          </section>
+        </div>
+      )}
+    </main>
+  );
 }
