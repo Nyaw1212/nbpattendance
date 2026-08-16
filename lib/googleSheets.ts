@@ -29,6 +29,16 @@ export type RestoredAttendanceRecord = {
   leave_type: string | null;
 };
 
+export type AttendanceBackupSummary = {
+  transactionId: string;
+  savedAt: string;
+  camp: string;
+  office: string;
+  dateFrom: string;
+  dateTo: string;
+  entryCount: number;
+};
+
 const BACKUP_SHEET = 'ATTENDANCE_BACKUP';
 
 function auth() {
@@ -168,6 +178,35 @@ export async function appendAttendanceBackup(entries: AttendanceBackupEntry[]) {
   return { transactionId, savedAt, count: entries.length };
 }
 
+export async function listAttendanceBackups(options?: { camp?: string | null; office?: string | null; limit?: number }) {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) throw new Error('GOOGLE_SHEET_ID is not configured.');
+
+  const sheets = google.sheets({ version: 'v4', auth: auth() });
+  const result = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${BACKUP_SHEET}!A2:G`
+  });
+
+  const campFilter = String(options?.camp || '').trim();
+  const officeFilter = String(options?.office || '').trim();
+  const limit = Math.max(1, Math.min(100, Number(options?.limit || 30)));
+
+  return [...(result.data.values || [])]
+    .reverse()
+    .map(row => ({
+      transactionId: String(row[0] || '').trim(),
+      savedAt: String(row[1] || '').trim(),
+      camp: String(row[2] || '').trim(),
+      office: String(row[3] || '').trim(),
+      dateFrom: String(row[4] || '').trim(),
+      dateTo: String(row[5] || '').trim(),
+      entryCount: Number(row[6] || 0)
+    } as AttendanceBackupSummary))
+    .filter(item => item.transactionId && (!campFilter || item.camp === campFilter) && (!officeFilter || item.office === officeFilter))
+    .slice(0, limit);
+}
+
 export async function loadAttendanceBackup(options: {
   camp: string;
   office: string;
@@ -187,8 +226,6 @@ export async function loadAttendanceBackup(options: {
   const rows = result.data.values || [];
   const requestedTransactionId = options.transactionId?.trim();
 
-  // Search newest first. When a transaction ID is supplied, use that exact
-  // snapshot. Otherwise use the newest backup that covers the requested week.
   const match = [...rows].reverse().find(row => {
     const transactionId = String(row[0] || '').trim();
     const camp = String(row[2] || '').trim();
