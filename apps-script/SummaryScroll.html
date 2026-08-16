@@ -1,7 +1,7 @@
 <script>
 (function(){
-  const HOVER_DELAY_MS=450;
-  const SAFE_LEFT_EDGE_PX=34;
+  const HOVER_DELAY_MS=350;
+  const SAFE_LEFT_EDGE_PX=110;
   let hoverTimer=null;
   let pendingRow=null;
 
@@ -10,18 +10,24 @@
     pendingRow=null;
   }
 
+  function clearGridHover(){
+    document.querySelectorAll('.person-name').forEach(el=>el.classList.remove('hover-person'));
+    document.querySelectorAll('.hover-cell').forEach(el=>el.classList.remove('hover-cell'));
+    document.querySelectorAll('.hover-btn').forEach(el=>el.classList.remove('hover-btn'));
+  }
+
   function scrollSummaryPersonIntoView(summaryRow){
     if(!summaryRow) return;
     const badge=summaryRow.dataset.summary;
     if(!badge) return;
     const grid=document.getElementById('gridWrap');
     if(!grid) return;
-    const people=grid.querySelectorAll('.person-name[data-person]');
-    let person=null;
-    for(const el of people){
-      if(el.dataset.person===badge){ person=el; break; }
-    }
+
+    const person=Array.from(grid.querySelectorAll('.person-name[data-person]'))
+      .find(el=>el.dataset.person===badge);
     if(!person) return;
+
+    person.classList.add('hover-person');
     const row=person.closest('tr');
     if(!row) return;
 
@@ -38,33 +44,56 @@
     }
   }
 
-  // Auto-scroll only after the pointer deliberately rests inside the summary card.
-  // The first 34px on the card's left edge is a dead zone so crossing over from
-  // the attendance scrollbar cannot accidentally move the personnel list.
-  document.addEventListener('mousemove',function(e){
-    const row=e.target.closest && e.target.closest('.case-row[data-summary]');
-    if(!row){ cancelPending(); return; }
+  function activateRow(row){
+    clearGridHover();
+    scrollSummaryPersonIntoView(row);
+  }
 
-    const rect=row.getBoundingClientRect();
-    if(e.clientX < rect.left + SAFE_LEFT_EDGE_PX){
-      cancelPending();
-      return;
-    }
+  function bindSummaryRows(){
+    document.querySelectorAll('.case-row[data-summary]').forEach(function(row){
+      if(row.dataset.safeHoverBound==='1') return;
+      row.dataset.safeHoverBound='1';
 
-    if(pendingRow===row) return;
-    cancelPending();
-    pendingRow=row;
-    hoverTimer=setTimeout(function(){
-      if(pendingRow===row) scrollSummaryPersonIntoView(row);
-      hoverTimer=null;
-    },HOVER_DELAY_MS);
-  });
+      // Disable AppJs' original full-card hover target.
+      row.onmouseenter=null;
+      row.onmouseleave=null;
 
-  document.addEventListener('mouseout',function(e){
-    const row=e.target.closest && e.target.closest('.case-row[data-summary]');
-    if(!row) return;
-    if(e.relatedTarget && row.contains(e.relatedTarget)) return;
-    if(pendingRow===row) cancelPending();
-  });
+      row.addEventListener('mousemove',function(e){
+        const rect=row.getBoundingClientRect();
+        const insideActiveZone=e.clientX >= rect.left + SAFE_LEFT_EDGE_PX;
+
+        if(!insideActiveZone){
+          if(pendingRow===row) cancelPending();
+          clearGridHover();
+          return;
+        }
+
+        if(pendingRow===row) return;
+        cancelPending();
+        pendingRow=row;
+        hoverTimer=setTimeout(function(){
+          if(pendingRow===row) activateRow(row);
+          hoverTimer=null;
+        },HOVER_DELAY_MS);
+      });
+
+      row.addEventListener('mouseleave',function(){
+        if(pendingRow===row) cancelPending();
+        clearGridHover();
+      });
+    });
+  }
+
+  // Summary rows are rebuilt whenever the active date/status changes.
+  const observer=new MutationObserver(bindSummaryRows);
+  const start=function(){
+    const list=document.getElementById('caseList');
+    if(!list) return;
+    observer.observe(list,{childList:true,subtree:true});
+    bindSummaryRows();
+  };
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start);
+  else start();
 })();
 </script>
