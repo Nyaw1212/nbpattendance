@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <main class="page-shell">
+    <section class="app-card">
+      <header class="app-head">
+        <div>
+          <h1><?= appTitle ?></h1>
+          <p>Google Apps Script port</p>
+        </div>
+        <span class="port-badge">Apps Script</span>
+      </header>
+
+      <div id="status" class="status-line">Loading reference data…</div>
+
+      <section class="controls">
+        <label><span>CAMP</span><select id="camp"></select></label>
+        <label><span>OFFICE</span><select id="office"></select></label>
+        <label><span>WEEK CONTAINING</span><input id="date" type="date"></label>
+        <button id="load" class="primary">Load Office</button>
+      </section>
+
+      <section class="preview-grid">
+        <div class="summary-card">
+          <span>PERSONNEL</span>
+          <strong id="personnelCount">0</strong>
+          <small id="selectedOffice">Select an office</small>
+        </div>
+        <div class="summary-card">
+          <span>LEAVE TYPES</span>
+          <strong id="leaveCount">0</strong>
+          <small>Loaded directly from Google Sheets</small>
+        </div>
+      </section>
+
+      <section class="roster-card">
+        <div class="roster-head"><strong>Personnel Preview</strong><span id="rosterMeta"></span></div>
+        <div id="roster" class="roster-list"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>window.INITIAL_UNIT_KEY = <?!= JSON.stringify(unitKey) ?>;</script>
+  <?!= include('AppJs'); ?>
+</body>
+</html>
