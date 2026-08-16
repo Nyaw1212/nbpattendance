@@ -10,8 +10,6 @@ function getNeonConnection_() {
     throw new Error('Neon is not configured. Set NEON_HOST, NEON_PORT, NEON_DATABASE, NEON_USER, and NEON_PASSWORD in Script Properties.');
   }
 
-  // Apps Script JDBC rejects the PostgreSQL sslmode property. The Neon
-  // connection has already been verified successfully without this option.
   const url = 'jdbc:postgresql://' + host + ':' + port + '/' + database;
   return Jdbc.getConnection(url, user, password);
 }
@@ -33,12 +31,17 @@ function testNeonConnection() {
   }
 }
 
-function saveNeonAttendance_(entries, camp, office) {
+function saveNeonAttendance_(entries, camp, office, perf) {
+  perf = perf || {};
   let conn, stmt;
+  const totalStarted = Date.now();
   try {
+    let t = Date.now();
     conn = getNeonConnection_();
-    conn.setAutoCommit(false);
+    perf.neonConnectMs = Date.now() - t;
 
+    t = Date.now();
+    conn.setAutoCommit(false);
     const sql = [
       'INSERT INTO nbp_attendance.attendance',
       '(employee_key, attendance_date, status, leave_type, camp_at_time, office_at_time)',
@@ -50,29 +53,36 @@ function saveNeonAttendance_(entries, camp, office) {
       'office_at_time = EXCLUDED.office_at_time,',
       'updated_at = NOW()'
     ].join(' ');
-
     stmt = conn.prepareStatement(sql);
+    perf.neonPrepareMs = Date.now() - t;
+
+    t = Date.now();
     entries.forEach(function(entry) {
       stmt.setString(1, String(entry[0]));
       stmt.setString(2, String(entry[1]));
       stmt.setString(3, String(entry[2]));
-
-      // java.sql.Types.VARCHAR = 12. Apps Script does not expose Jdbc.TYPE_VARCHAR.
       if (entry[3] == null || entry[3] === '') stmt.setNull(4, 12);
       else stmt.setString(4, String(entry[3]));
-
       stmt.setString(5, String(camp));
       stmt.setString(6, String(office));
       stmt.addBatch();
     });
+    perf.neonBindMs = Date.now() - t;
 
+    t = Date.now();
     stmt.executeBatch();
+    perf.neonBatchMs = Date.now() - t;
+
+    t = Date.now();
     conn.commit();
+    perf.neonCommitMs = Date.now() - t;
+    perf.neonTotalMs = Date.now() - totalStarted;
     return entries.length;
   } catch (err) {
     if (conn) {
       try { conn.rollback(); } catch (ignore) {}
     }
+    perf.neonTotalMs = Date.now() - totalStarted;
     throw err;
   } finally {
     if (stmt) stmt.close();
@@ -80,10 +90,16 @@ function saveNeonAttendance_(entries, camp, office) {
   }
 }
 
-function loadNeonAttendance_(camp, office, weekStart, weekEnd) {
+function loadNeonAttendance_(camp, office, weekStart, weekEnd, perf) {
+  perf = perf || {};
   let conn, stmt, rs;
+  const totalStarted = Date.now();
   try {
+    let t = Date.now();
     conn = getNeonConnection_();
+    perf.neonConnectMs = Date.now() - t;
+
+    t = Date.now();
     stmt = conn.prepareStatement([
       'SELECT employee_key, attendance_date::text, status, leave_type',
       'FROM nbp_attendance.attendance',
@@ -96,8 +112,13 @@ function loadNeonAttendance_(camp, office, weekStart, weekEnd) {
     stmt.setString(2, String(weekEnd));
     stmt.setString(3, String(camp));
     stmt.setString(4, String(office));
-    rs = stmt.executeQuery();
+    perf.neonPrepareMs = Date.now() - t;
 
+    t = Date.now();
+    rs = stmt.executeQuery();
+    perf.neonQueryMs = Date.now() - t;
+
+    t = Date.now();
     const records = [];
     while (rs.next()) {
       records.push({
@@ -107,6 +128,8 @@ function loadNeonAttendance_(camp, office, weekStart, weekEnd) {
         leave_type: rs.getString(4)
       });
     }
+    perf.neonReadMs = Date.now() - t;
+    perf.neonTotalMs = Date.now() - totalStarted;
     return records;
   } finally {
     if (rs) rs.close();
