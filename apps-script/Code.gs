@@ -62,6 +62,41 @@ function getBootstrapData(unitKey) {
   };
 }
 
+function getOfficeSubmissionStatus(unitKey) {
+  const key = String(unitKey || '').trim();
+  if (!key) return { individualLink: false };
+
+  const data = getReferenceData_({});
+  const unit = resolveRequestedUnit_(key, data.offices);
+  if (!unit) throw new Error('This office link is invalid or no longer active.');
+
+  const sheet = getOfficeDirectorySheet_();
+  const row = findOfficeDirectoryRow_(sheet, unit.camp, unit.office);
+  if (!row) throw new Error('Office monitoring row not found.');
+
+  const cols = ensureOfficeMonitorColumns_(sheet);
+  const now = new Date();
+  const shift = attendanceShiftForDate_(now);
+  const today = Utilities.formatDate(now, OFFICE_MONITOR_TIMEZONE_, 'yyyy-MM-dd');
+  const time = Utilities.formatDate(now, OFFICE_MONITOR_TIMEZONE_, 'HH:mm:ss');
+  const lastUpdated = String(sheet.getRange(row, cols['LAST UPDATED']).getDisplayValue() || '').trim();
+  const shiftTime = String(sheet.getRange(row, cols[shift + ' TIME']).getDisplayValue() || '').trim();
+  const updated = lastUpdated === today && !!shiftTime;
+
+  return {
+    individualLink: true,
+    camp: unit.camp,
+    office: unit.office,
+    shift: shift,
+    status: updated ? 'UPDATED' : 'DUE FOR SUBMISSION',
+    updated: updated,
+    submissionTime: updated ? shiftTime : '',
+    serverDate: today,
+    serverTime: time,
+    timezone: OFFICE_MONITOR_TIMEZONE_
+  };
+}
+
 function profileBootstrapData() {
   const result = getBootstrapData('');
   console.log('BOOTSTRAP PROFILE');
