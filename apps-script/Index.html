@@ -9,42 +9,49 @@
   <main class="page-shell">
     <section class="app-card">
       <header class="app-head">
-        <div>
-          <h1><?= appTitle ?></h1>
-          <p>Google Apps Script port</p>
-        </div>
+        <div><h1><?= appTitle ?></h1><p>Weekly office attendance recorder</p></div>
         <span class="port-badge">Apps Script</span>
       </header>
 
       <div id="status" class="status-line">Loading reference data…</div>
 
       <section class="controls">
+        <label><span>WEEK CONTAINING</span><input id="date" type="date"></label>
         <label><span>CAMP</span><select id="camp"></select></label>
         <label><span>OFFICE</span><select id="office"></select></label>
-        <label><span>WEEK CONTAINING</span><input id="date" type="date"></label>
-        <button id="load" class="primary">Load Office</button>
+        <button id="load" class="primary">Load Week</button>
       </section>
 
-      <section class="preview-grid">
-        <div class="summary-card">
-          <span>PERSONNEL</span>
-          <strong id="personnelCount">0</strong>
-          <small id="selectedOffice">Select an office</small>
-        </div>
-        <div class="summary-card">
-          <span>LEAVE TYPES</span>
-          <strong id="leaveCount">0</strong>
-          <small>Loaded directly from Google Sheets</small>
-        </div>
+      <section class="work-area">
+        <section class="attendance-pane">
+          <div class="toolbar">
+            <button id="prevWeek">‹ Previous</button>
+            <strong id="weekLabel"></strong>
+            <button id="nextWeek">Next ›</button>
+            <input id="search" placeholder="Search personnel…">
+            <span class="hint">P → O → choose Leave / Status</span>
+          </div>
+          <div class="grid-wrap" id="gridWrap"></div>
+        </section>
+
+        <aside class="summary-pane">
+          <div class="summary-head">
+            <div><span>SUMMARY OF PERSONNEL STATUSES / MOVEMENT</span><strong id="activeDayLabel"></strong></div>
+            <div id="caseCount" class="case-count">0</div>
+          </div>
+          <div id="caseChips" class="case-chips"></div>
+          <div id="caseList" class="case-list"></div>
+        </aside>
       </section>
 
-      <section class="roster-card">
-        <div class="roster-head"><strong>Personnel Preview</strong><span id="rosterMeta"></span></div>
-        <div id="roster" class="roster-list"></div>
-      </section>
+      <footer>
+        <span id="footerMessage">Ready.</span>
+        <button class="primary" id="saveWeek" disabled title="Database save will be connected in the next port step">Save Week</button>
+      </footer>
     </section>
   </main>
 
+  <div id="modalRoot"></div>
   <script>window.INITIAL_UNIT_KEY = <?!= JSON.stringify(unitKey) ?>;</script>
   <?!= include('AppJs'); ?>
 </body>
