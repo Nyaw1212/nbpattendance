@@ -1,14 +1,13 @@
 const OFFICE_DIRECTORY_SHEET_ = 'OFFICE_DIRECTORY';
 const OFFICE_MONITOR_TIMEZONE_ = 'Asia/Manila';
+const OFFICE_SHIFT_NAMES_ = ['0000H', '0800H', '1600H'];
+const OFFICE_SHIFT_TIME_HEADERS_ = ['0000H TIME', '0800H TIME', '1600H TIME'];
 const OFFICE_MONITOR_HEADERS_ = [
   'UPDATED TODAY',
   'LAST UPDATED',
   'LAST UPDATE TIME',
-  'LAST SHIFT',
-  '0000H',
-  '0800H',
-  '1600H'
-];
+  'LAST SHIFT'
+].concat(OFFICE_SHIFT_NAMES_, OFFICE_SHIFT_TIME_HEADERS_);
 
 function normalizeOfficeSlug_(value) {
   return String(value || '')
@@ -98,22 +97,73 @@ function markOfficeAttendanceUpdated_(camp, office, savedAt) {
   const time = Utilities.formatDate(now, OFFICE_MONITOR_TIMEZONE_, 'HH:mm:ss');
   const displayDateTime = Utilities.formatDate(now, OFFICE_MONITOR_TIMEZONE_, 'yyyy-MM-dd HH:mm:ss');
   const shift = attendanceShiftForDate_(now);
+  const timeHeader = shift + ' TIME';
 
   const previousLastUpdated = String(sheet.getRange(row, cols['LAST UPDATED']).getDisplayValue() || '').trim();
   if (previousLastUpdated && previousLastUpdated !== today) {
-    sheet.getRange(row, cols['0000H']).clearContent();
-    sheet.getRange(row, cols['0800H']).clearContent();
-    sheet.getRange(row, cols['1600H']).clearContent();
+    OFFICE_SHIFT_TIME_HEADERS_.forEach(function(header) {
+      sheet.getRange(row, cols[header]).clearContent();
+    });
   }
 
   sheet.getRange(row, cols['UPDATED TODAY']).setValue('YES');
   sheet.getRange(row, cols['LAST UPDATED']).setValue(today);
   sheet.getRange(row, cols['LAST UPDATE TIME']).setValue(time);
   sheet.getRange(row, cols['LAST SHIFT']).setValue(shift);
-  sheet.getRange(row, cols[shift]).setValue(time);
+  sheet.getRange(row, cols[timeHeader]).setValue(time);
+
+  refreshOfficeShiftStatusFormulas_(sheet, cols, row, row);
 
   console.log('Office update monitor: ' + camp + ' | ' + office + ' | ' + displayDateTime + ' | ' + shift);
   return { row: row, updatedToday: true, date: today, time: time, shift: shift };
+}
+
+function refreshOfficeShiftStatusFormulas_(sheet, cols, startRow, endRow) {
+  const first = Math.max(2, Number(startRow) || 2);
+  const last = Math.max(first, Number(endRow) || sheet.getLastRow());
+  const count = last - first + 1;
+  const activeLetter = columnLetter_(3);
+  const dateLetter = columnLetter_(cols['LAST UPDATED']);
+
+  const deadlines = {
+    '0000H': 'TIME(0,30,0)',
+    '0800H': 'TIME(8,30,0)',
+    '1600H': 'TIME(16,30,0)'
+  };
+
+  OFFICE_SHIFT_NAMES_.forEach(function(shift) {
+    const statusCol = cols[shift];
+    const timeCol = cols[shift + ' TIME'];
+    const timeLetter = columnLetter_(timeCol);
+    const formulas = [];
+    for (let row = first; row <= last; row++) {
+      formulas.push([
+        '=IF($' + activeLetter + row + '<>TRUE,"",IF(AND($' + dateLetter + row + '=TODAY(),$' + timeLetter + row + '<>""),"UPDATED",IF(MOD(NOW(),1)>=' + deadlines[shift] + ',"MISSING","NOT DUE")))'
+      ]);
+    }
+    sheet.getRange(first, statusCol, count, 1).setFormulas(formulas);
+  });
+}
+
+function columnLetter_(column) {
+  let n = Number(column) || 1;
+  let out = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    out = String.fromCharCode(65 + rem) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+function refreshOfficeShiftDashboard() {
+  const sheet = getOfficeDirectorySheet_();
+  const cols = ensureOfficeMonitorColumns_(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { updated: 0 };
+  refreshOfficeShiftStatusFormulas_(sheet, cols, 2, lastRow);
+  SpreadsheetApp.flush();
+  return { updated: lastRow - 1 };
 }
 
 function refreshOfficeUpdatedTodayFlags() {
@@ -128,6 +178,7 @@ function refreshOfficeUpdatedTodayFlags() {
     return [String(row[0] || '').trim() === today ? 'YES' : 'NO'];
   });
   sheet.getRange(2, cols['UPDATED TODAY'], output.length, 1).setValues(output);
+  refreshOfficeShiftStatusFormulas_(sheet, cols, 2, lastRow);
   SpreadsheetApp.flush();
   return { updated: output.length, today: today };
 }
