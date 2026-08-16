@@ -15,13 +15,30 @@ function include(filename) {
 }
 
 function getBootstrapData(unitKey) {
-  const data = getReferenceData_();
+  const started = Date.now();
+  const perf = {};
+  const data = getReferenceData_(perf);
+
+  let t = Date.now();
   const resolvedUnit = unitKey ? resolveUnit_(unitKey, data.offices) : null;
+  perf.resolveUnitMs = Date.now() - t;
+  perf.bootstrapTotalMs = Date.now() - started;
+
+  console.log('BOOTSTRAP PERFORMANCE ' + JSON.stringify(perf));
+
   return {
     appTitle: APP_TITLE,
     personnel: data.personnel,
     offices: data.offices,
     leaveTypes: data.leaveTypes,
-    resolvedUnit: resolvedUnit
+    resolvedUnit: resolvedUnit,
+    performance: perf
   };
+}
+
+function profileBootstrapData() {
+  const result = getBootstrapData('');
+  console.log('BOOTSTRAP PROFILE');
+  console.log(JSON.stringify(result.performance, null, 2));
+  return result.performance;
 }
