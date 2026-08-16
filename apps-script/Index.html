@@ -46,7 +46,7 @@
 
       <footer>
         <span id="footerMessage">Ready.</span>
-        <button class="primary" id="saveWeek" disabled title="Database save will be connected in the next port step">Save Week</button>
+        <button class="primary" id="saveWeek" title="Save this office/week to Google Sheets">Save Week</button>
       </footer>
     </section>
   </main>
@@ -55,5 +55,6 @@
   <script>window.INITIAL_UNIT_KEY = <?!= JSON.stringify(unitKey) ?>;</script>
   <?!= include('AppJs'); ?>
   <?!= include('RangeEnhancer'); ?>
+  <?!= include('SaveBridge'); ?>
 </body>
 </html>
