@@ -150,10 +150,8 @@ function loadAttendanceBackup_(camp, office, weekStart, weekEnd) {
   const wantedOffice = String(office).trim();
   const wantedStart = String(weekStart).trim();
   const wantedEnd = String(weekEnd).trim();
-
-  // Use display values so dates formatted by Sheets compare as YYYY-MM-DD text
-  // instead of JavaScript Date objects.
   const blockSize = 200;
+
   for (let end = lastRow; end >= 2; end -= blockSize) {
     const start = Math.max(2, end - blockSize + 1);
     const range = sheet.getRange(start, 1, end - start + 1, 8);
@@ -162,17 +160,13 @@ function loadAttendanceBackup_(camp, office, weekStart, weekEnd) {
 
     for (let i = display.length - 1; i >= 0; i--) {
       const row = display[i];
-      if (String(row[2]).trim() !== wantedCamp ||
-          String(row[3]).trim() !== wantedOffice) continue;
+      if (String(row[2]).trim() !== wantedCamp || String(row[3]).trim() !== wantedOffice) continue;
 
-      // Prefer the canonical dates inside the JSON blob. This is immune to
-      // whatever date formatting the sheet applies to columns E/F.
       try {
         const jsonText = String(raw[i][7] || row[7] || '');
         const backup = JSON.parse(jsonText);
         if (!backup || !Array.isArray(backup.entries)) continue;
-        if (String(backup.dateFrom || '').trim() !== wantedStart ||
-            String(backup.dateTo || '').trim() !== wantedEnd) continue;
+        if (String(backup.dateFrom || '').trim() !== wantedStart || String(backup.dateTo || '').trim() !== wantedEnd) continue;
 
         console.log('Attendance sheet-cache hit: transaction=' + (backup.transactionId || row[0] || ''));
         return {
@@ -197,7 +191,15 @@ function saveAttendanceWeek(payload) {
   if (!entries.length) throw new Error('No valid attendance entries supplied.');
 
   const neonSaved = saveNeonAttendance_(entries, payload.camp, payload.office);
+  const savedAtDate = new Date();
   invalidateAttendanceCache_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
+
+  let monitor = null;
+  try {
+    monitor = markOfficeAttendanceUpdated_(payload.camp, payload.office, savedAtDate);
+  } catch (monitorError) {
+    console.log('Office monitoring update failed: ' + monitorError.message);
+  }
 
   let backup;
   try {
@@ -208,6 +210,7 @@ function saveAttendanceWeek(payload) {
       saved: neonSaved,
       source: 'neon',
       backupOk: false,
+      monitor: monitor,
       backupWarning: backupError && backupError.message ? backupError.message : String(backupError)
     };
   }
@@ -222,7 +225,8 @@ function saveAttendanceWeek(payload) {
     backupOk: true,
     transactionId: backup.transactionId,
     savedAt: backup.savedAt,
-    jsonCharacters: backup.jsonCharacters
+    jsonCharacters: backup.jsonCharacters,
+    monitor: monitor
   };
 }
 
