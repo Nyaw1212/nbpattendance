@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { appendAttendanceBackup } from '@/lib/googleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,9 +44,6 @@ export async function POST(request: NextRequest) {
     const entries = Array.isArray(body.entries) ? body.entries as AttendanceEntry[] : [];
     if (!entries.length) return NextResponse.json({ error: 'No attendance entries supplied.' }, { status: 400 });
 
-    // Keep only the final value for each employee/date pair before writing.
-    // This preserves the same uniqueness rule as the database constraint and
-    // prevents a single bulk INSERT from trying to update the same row twice.
     const deduped = new Map<string, {
       employee_key: string;
       attendance_date: string;
@@ -71,9 +69,6 @@ export async function POST(request: NextRequest) {
     const rows = [...deduped.values()];
     const sql = db();
 
-    // One bulk upsert instead of one SQL statement per attendance entry.
-    // The database still uses (employee_key, attendance_date) as the conflict key,
-    // so the saved result is equivalent to the previous row-by-row implementation.
     await sql`
       INSERT INTO nbp_attendance.attendance ${sql(
         rows,
@@ -92,7 +87,27 @@ export async function POST(request: NextRequest) {
                     updated_at = NOW()
     `;
 
-    return NextResponse.json({ saved: rows.length });
+    // Neon is the system of record. After the database save succeeds, write one
+    // compact transaction snapshot to Google Sheets as a secondary backup.
+    let backup: { ok: boolean; transactionId?: string; warning?: string } = { ok: false };
+    try {
+      const result = await appendAttendanceBackup(rows.map(row => ({
+        employeeKey: row.employee_key,
+        date: row.attendance_date,
+        status: row.status,
+        leaveType: row.leave_type,
+        camp: row.camp_at_time,
+        office: row.office_at_time
+      })));
+      backup = { ok: true, transactionId: result.transactionId };
+    } catch (error) {
+      backup = {
+        ok: false,
+        warning: error instanceof Error ? error.message : 'Google Sheets backup failed.'
+      };
+    }
+
+    return NextResponse.json({ saved: rows.length, backup });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to save attendance.' }, { status: 500 });
   }
