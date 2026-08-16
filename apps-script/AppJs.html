@@ -1,104 +1,43 @@
 <script>
-  const state = { personnel: [], offices: [], leaveTypes: [], camp: '', office: '', resolvedUnit: null };
-
-  const $ = id => document.getElementById(id);
-  const todayIso = () => {
-    const d = new Date();
-    return [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-');
-  };
-
-  function setStatus(message) { $('status').textContent = message; }
-
-  function unique(values) { return [...new Set(values.filter(Boolean))]; }
-
-  function fillSelect(select, items, placeholder) {
-    select.innerHTML = '';
-    const first = document.createElement('option');
-    first.value = '';
-    first.textContent = placeholder;
-    select.appendChild(first);
-    items.forEach(item => {
-      const option = document.createElement('option');
-      option.value = item;
-      option.textContent = item;
-      select.appendChild(option);
-    });
-  }
-
-  function refreshOfficeOptions() {
-    const offices = state.offices
-      .filter(item => item.camp === state.camp)
-      .sort((a,b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-      .map(item => item.office);
-    fillSelect($('office'), offices, 'Select office');
-    if (state.office && offices.includes(state.office)) $('office').value = state.office;
-  }
-
-  function renderRoster() {
-    const roster = state.personnel
-      .filter(person => person.camp === state.camp && person.office === state.office)
-      .sort((a,b) => a.fullName.localeCompare(b.fullName));
-    $('personnelCount').textContent = roster.length;
-    $('leaveCount').textContent = state.leaveTypes.length;
-    $('selectedOffice').textContent = state.office || 'Select an office';
-    $('rosterMeta').textContent = roster.length ? `${state.camp} · ${state.office}` : '';
-    const host = $('roster');
-    host.innerHTML = '';
-    if (!roster.length) {
-      host.innerHTML = '<div class="empty">No personnel to show.</div>';
-      return;
-    }
-    roster.forEach(person => {
-      const row = document.createElement('div');
-      row.className = 'person-row';
-      row.innerHTML = `<div><b>${escapeHtml(person.fullName)}</b><br><small>${escapeHtml(person.rank || '')}</small></div><small>Badge ${escapeHtml(person.badgeNumber)}</small>`;
-      host.appendChild(row);
-    });
-  }
-
-  function escapeHtml(value) {
-    return String(value == null ? '' : value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-  }
-
-  function bootstrapSuccess(data) {
-    state.personnel = data.personnel || [];
-    state.offices = data.offices || [];
-    state.leaveTypes = data.leaveTypes || [];
-    state.resolvedUnit = data.resolvedUnit || null;
-    const camps = unique(state.offices.map(item => item.camp));
-    fillSelect($('camp'), camps, 'Select camp');
-
-    if (state.resolvedUnit) {
-      state.camp = state.resolvedUnit.camp;
-      state.office = state.resolvedUnit.office;
-    } else if (state.offices[0]) {
-      state.camp = state.offices[0].camp;
-      state.office = state.offices[0].office;
-    }
-
-    $('camp').value = state.camp;
-    refreshOfficeOptions();
-    $('office').value = state.office;
-    renderRoster();
-    setStatus(`${state.personnel.length} personnel loaded directly from Google Sheets.`);
-  }
-
-  function bootstrapFailure(error) {
-    setStatus(error && error.message ? error.message : String(error));
-  }
-
-  $('camp').addEventListener('change', event => {
-    state.camp = event.target.value;
-    state.office = '';
-    refreshOfficeOptions();
-    renderRoster();
-  });
-  $('office').addEventListener('change', event => { state.office = event.target.value; renderRoster(); });
-  $('load').addEventListener('click', renderRoster);
-  $('date').value = todayIso();
-
-  google.script.run
-    .withSuccessHandler(bootstrapSuccess)
-    .withFailureHandler(bootstrapFailure)
-    .getBootstrapData(window.INITIAL_UNIT_KEY || '');
+(function(){
+  const state={personnel:[],offices:[],leaveTypes:[],camp:'',office:'',date:'',activeDay:'',cells:{},search:'',hover:null,pendingRanges:[]};
+  const LABEL={PRESENT:'P',OFF:'O',LEAVE:'L',OB:'OB',ABSENT:'A',UNRECORDED:'—',ACT:'ACT',TRN:'TRN',UI:'UI',AWOL:'AWOL',AWA:'AWA',SUS:'SUS',DET:'DET',DEC:'DEC',DIS:'DIS',RET:'RET'};
+  const PERSONNEL_STATUSES=[['ACT','Active / On Duty'],['OB','Official Business'],['TRN','In Training'],['UI','Under Investigation'],['AWOL','AWOL'],['AWA','AWA'],['SUS','On Suspension'],['DET','Detained'],['DEC','Deceased'],['DIS','Dismissed'],['RET','Retired']];
+  const $=id=>document.getElementById(id);
+  function iso(d){return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')}
+  function parseIso(v){return new Date(v+'T12:00:00')}
+  function weekFrom(v){const s=parseIso(v),sun=new Date(s);sun.setDate(s.getDate()-s.getDay());return Array.from({length:7},(_,i)=>{const d=new Date(sun);d.setDate(sun.getDate()+i);return d})}
+  function key(emp,date){return emp+'|'+date}
+  function defaultStatus(i){return i===0||i===6?'OFF':'PRESENT'}
+  function leaveCode(v){if(!v)return'L';const m=v.match(/\(([^)]+)\)/);if(m&&m[1])return m[1].toUpperCase();const w=v.trim().split(/\s+/).filter(Boolean);return (w.length===1?w[0].slice(0,3):w.map(x=>x[0]).join('').slice(0,3)).toUpperCase()}
+  function caseLabel(c){return c.status==='LEAVE'?leaveCode(c.leaveType):(LABEL[c.status]||c.status)}
+  function shortDate(v){return parseIso(v).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
+  function datesBetween(a,b){const s=parseIso(a),e=parseIso(b),out=[];for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))out.push(iso(d));return out}
+  function officeRoster(){return state.personnel.filter(p=>p.camp===state.camp&&p.office===state.office)}
+  function roster(){const q=state.search.toLowerCase();return officeRoster().filter(p=>!q||p.fullName.toLowerCase().includes(q)||p.badgeNumber.includes(q)).sort((a,b)=>a.fullName.localeCompare(b.fullName))}
+  function seedWeek(){const w=weekFrom(state.date),next={};officeRoster().forEach(p=>w.forEach((d,i)=>next[key(p.badgeNumber,iso(d))]={status:defaultStatus(i)}));state.cells=next;state.activeDay=iso(w[0]);}
+  function getRange(emp,c,focus){const exact=state.pendingRanges.find(r=>r.employeeKey===emp&&r.status===c.status&&(r.leaveType||'')===(c.leaveType||'')&&focus>=r.startDate&&focus<=r.endDate);if(exact)return{startDate:exact.startDate,endDate:exact.endDate,days:datesBetween(exact.startDate,exact.endDate).length};const wd=weekFrom(state.date).map(iso),i=wd.indexOf(focus);if(i<0)return{startDate:focus,endDate:focus,days:1};const match=d=>{const x=state.cells[key(emp,d)];return x&&x.status===c.status&&(x.leaveType||'')===(c.leaveType||'')};let l=i,r=i;while(l>0&&match(wd[l-1]))l--;while(r<wd.length-1&&match(wd[r+1]))r++;return{startDate:wd[l],endDate:wd[r],days:r-l+1}}
+  function setStatus(msg){$('status').textContent=msg;$('footerMessage').textContent=msg}
+  function renderSelectors(){const camps=[...new Set(state.offices.map(o=>o.camp))];$('camp').innerHTML=camps.map(c=>'<option>'+escapeHtml(c)+'</option>').join('');if(!state.camp)state.camp=camps[0]||'';$('camp').value=state.camp;const opts=state.offices.filter(o=>o.camp===state.camp).sort((a,b)=>a.sortOrder-b.sortOrder);$('office').innerHTML=opts.map(o=>'<option>'+escapeHtml(o.office)+'</option>').join('');if(!opts.some(o=>o.office===state.office))state.office=opts[0]?opts[0].office:'';$('office').value=state.office;$('date').value=state.date}
+  function render(){renderWeekLabel();renderGrid();renderSummary()}
+  function renderWeekLabel(){const w=weekFrom(state.date);$('weekLabel').textContent=w[0].toLocaleDateString()+' – '+w[6].toLocaleDateString()}
+  function renderGrid(){const w=weekFrom(state.date),rows=roster();let html='<table class="attendance-grid"><thead><tr><th>Personnel</th>';w.forEach(d=>{const di=iso(d);html+='<th class="'+(di===state.activeDay?'active-day':'')+'"><button class="day-head" data-day="'+di+'"><span>'+d.toLocaleDateString('en-US',{weekday:'short'}).toUpperCase()+'</span><small>'+(d.getMonth()+1)+'/'+d.getDate()+'</small></button></th>'});html+='</tr></thead><tbody>';rows.forEach(p=>{const personHover=state.hover&&state.hover.employeeKey===p.badgeNumber;html+='<tr><td class="person-name '+(personHover?'hover-person':'')+'" data-person="'+escAttr(p.badgeNumber)+'"><b>'+escapeHtml(p.fullName)+'</b><small>'+escapeHtml(p.rank)+' · Badge '+escapeHtml(p.badgeNumber)+'</small></td>';w.forEach(day=>{const di=iso(day),c=state.cells[key(p.badgeNumber,di)]||{status:'UNRECORDED'},display=caseLabel(c),special=c.status!=='PRESENT'&&c.status!=='OFF',inHover=state.hover&&state.hover.employeeKey===p.badgeNumber&&di>=state.hover.startDate&&di<=state.hover.endDate&&state.hover.status===c.status&&(state.hover.leaveType||'')===(c.leaveType||'');html+='<td class="'+(di===state.activeDay?'active-col ':'')+(inHover?'hover-cell':'')+'"><div class="status-cell" data-emp="'+escAttr(p.badgeNumber)+'" data-day="'+di+'"><button class="status-btn '+(special?'status-special':c.status==='PRESENT'?'status-present':'status-off')+' '+(inHover?'hover-btn':'')+'" data-action="cycle">'+escapeHtml(display)+'</button>'+(special?'<button class="details" data-action="edit">⋯</button>':'')+'</div></td>'});html+='</tr>'});html+='</tbody></table>';$('gridWrap').innerHTML=html;bindGrid()}
+  function renderSummary(){const active=parseIso(state.activeDay),cases=officeRoster().map(p=>({person:p,cell:state.cells[key(p.badgeNumber,state.activeDay)]||{status:'UNRECORDED'}})).filter(x=>!['PRESENT','OFF','ACT'].includes(x.cell.status)).sort((a,b)=>a.person.fullName.localeCompare(b.person.fullName));$('activeDayLabel').textContent=active.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});$('caseCount').textContent=cases.length;const counts={LEAVE:0,OB:0,ABSENT:0,UNRECORDED:0};cases.forEach(x=>{if(counts[x.cell.status]!==undefined)counts[x.cell.status]++});$('caseChips').innerHTML=['Leave','OB','Absent','Unrecorded'].map((n,i)=>'<span>'+n+' <b>'+counts[['LEAVE','OB','ABSENT','UNRECORDED'][i]]+'</b></span>').join('');$('caseList').innerHTML=cases.length?cases.map(x=>{const r=getRange(x.person.badgeNumber,x.cell,state.activeDay);return '<div class="case-row" data-summary="'+escAttr(x.person.badgeNumber)+'"><div><b>'+escapeHtml(x.person.fullName)+'</b><small>'+escapeHtml(x.person.rank)+' · Badge '+escapeHtml(x.person.badgeNumber)+'</small><small>'+shortDate(r.startDate)+' → '+shortDate(r.endDate)+' · '+r.days+' day'+(r.days===1?'':'s')+'</small></div><span class="case-code">'+escapeHtml(caseLabel(x.cell))+'</span></div>'}).join(''):'<div class="empty">No personnel statuses or movements to show for this day.</div>';document.querySelectorAll('[data-summary]').forEach(el=>{el.onmouseenter=()=>{const emp=el.dataset.summary,c=state.cells[key(emp,state.activeDay)];if(c){const r=getRange(emp,c,state.activeDay);state.hover={employeeKey:emp,status:c.status,leaveType:c.leaveType,startDate:r.startDate,endDate:r.endDate};renderGrid()}};el.onmouseleave=()=>{state.hover=null;renderGrid()}})}
+  function bindGrid(){document.querySelectorAll('.day-head').forEach(b=>b.onclick=()=>{state.activeDay=b.dataset.day;render()});document.querySelectorAll('[data-person]').forEach(td=>{td.onmouseenter=()=>{const emp=td.dataset.person,c=state.cells[key(emp,state.activeDay)]||{status:'UNRECORDED'},r=getRange(emp,c,state.activeDay);state.hover={employeeKey:emp,status:c.status,leaveType:c.leaveType,startDate:r.startDate,endDate:r.endDate};renderGrid()};td.onmouseleave=()=>{state.hover=null;renderGrid()}});document.querySelectorAll('.status-cell').forEach(el=>{const emp=el.dataset.emp,day=el.dataset.day;el.onmouseenter=()=>{const c=state.cells[key(emp,day)];if(c){const r=getRange(emp,c,day);state.hover={employeeKey:emp,status:c.status,leaveType:c.leaveType,startDate:r.startDate,endDate:r.endDate};renderGrid()}};el.onmouseleave=()=>{state.hover=null;renderGrid()};el.querySelector('[data-action="cycle"]').onclick=()=>cycleCell(emp,day);const edit=el.querySelector('[data-action="edit"]');if(edit)edit.onclick=e=>{e.stopPropagation();openExisting(emp,day)}})}
+  function cycleCell(emp,day){state.activeDay=day;const k=key(emp,day),c=state.cells[k]||{status:'UNRECORDED'};if(c.status==='PRESENT'){state.cells[k]={status:'OFF'};render();return}if(c.status==='OFF'||c.status==='UNRECORDED'){openTypeChoice(emp,day);return}state.cells[k]={status:'PRESENT'};render()}
+  function personByBadge(emp){return state.personnel.find(p=>p.badgeNumber===emp)}
+  function modal(title,sub,body,small){$('modalRoot').innerHTML='<div class="modal-backdrop"><section class="modal '+(small?'small':'')+'"><div class="modal-head"><div><strong>'+escapeHtml(title)+'</strong><small>'+escapeHtml(sub||'')+'</small></div><button id="modalClose">×</button></div>'+body+'</section></div>';$('modalClose').onclick=closeModal;document.querySelector('.modal-backdrop').onclick=e=>{if(e.target===e.currentTarget)closeModal()}}
+  function closeModal(){$('modalRoot').innerHTML=''}
+  function openTypeChoice(emp,day){const p=personByBadge(emp);modal('Select attendance type',p.fullName+' · '+shortDate(day),'<div class="choice-grid"><button id="chooseLeave"><b>LV</b><span>Leave</span></button><button id="chooseStatus"><b>STS</b><span>Personnel Status / Movement</span></button></div>',true);$('chooseLeave').onclick=()=>openLeave(emp,day);$('chooseStatus').onclick=()=>openStatus(emp,day)}
+  function openLeave(emp,day){const p=personByBadge(emp);modal('Select leave type',p.fullName+' · '+shortDate(day),'<div class="choice-grid">'+state.leaveTypes.map(t=>'<button data-leave="'+escAttr(t)+'"><b>'+escapeHtml(leaveCode(t))+'</b><span>'+escapeHtml(t)+'</span></button>').join('')+'</div>');document.querySelectorAll('[data-leave]').forEach(b=>b.onclick=()=>openRange(emp,day,'LEAVE',b.dataset.leave))}
+  function openStatus(emp,day){const p=personByBadge(emp);modal('Select personnel status',p.fullName+' · '+shortDate(day),'<div class="choice-grid">'+PERSONNEL_STATUSES.map(x=>'<button data-st="'+x[0]+'"><b>'+x[0]+'</b><span>'+escapeHtml(x[1])+'</span></button>').join('')+'</div>');document.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>openRange(emp,day,b.dataset.st,null))}
+  function openExisting(emp,day){const c=state.cells[key(emp,day)];if(!c)return;if(c.status==='LEAVE')openLeave(emp,day);else openStatus(emp,day)}
+  function openRange(emp,day,status,leaveType){const p=personByBadge(emp);modal('Select date range',p.fullName+' · '+(leaveType||LABEL[status]||status),'<div class="range-body"><div class="range-fields"><label><span>START DATE</span><input id="rangeStart" type="date" value="'+day+'"></label><label><span>END DATE</span><input id="rangeEnd" type="date" value="'+day+'"></label></div></div><div class="range-actions"><button id="rangeCancel">Cancel</button><button id="rangeApply" class="primary">Apply date range</button></div>');$('rangeCancel').onclick=closeModal;$('rangeApply').onclick=()=>{const a=$('rangeStart').value,b=$('rangeEnd').value;if(!a||!b||b<a){setStatus('End date must be on or after start date.');return}datesBetween(a,b).forEach(d=>state.cells[key(emp,d)]={status:status,leaveType:leaveType||undefined});state.pendingRanges=state.pendingRanges.filter(r=>!(r.employeeKey===emp&&r.status===status&&(r.leaveType||'')===(leaveType||'')));state.pendingRanges.push({employeeKey:emp,status:status,leaveType:leaveType||undefined,startDate:a,endDate:b});state.activeDay=a;closeModal();setStatus((leaveType||LABEL[status]||status)+' applied from '+a+' to '+b+'.');render()}}
+  function moveWeek(n){const d=parseIso(state.date);d.setDate(d.getDate()+n);state.date=iso(d);$('date').value=state.date;seedWeek();render()}
+  function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+  function escAttr(s){return escapeHtml(s)}
+  function init(data){state.personnel=data.personnel||[];state.offices=data.offices||[];state.leaveTypes=data.leaveTypes||[];state.date=iso(new Date());if(data.resolvedUnit){state.camp=data.resolvedUnit.camp;state.office=data.resolvedUnit.office}else{state.camp=state.offices[0]?state.offices[0].camp:'';state.office=state.offices.find(o=>o.camp===state.camp)?.office||''}renderSelectors();seedWeek();render();setStatus(state.personnel.length+' personnel loaded from Google Sheets. Core Apps Script UI ready.');}
+  $('camp').onchange=e=>{state.camp=e.target.value;state.office='';renderSelectors();seedWeek();render()};$('office').onchange=e=>{state.office=e.target.value;seedWeek();render()};$('date').onchange=e=>{state.date=e.target.value;seedWeek();render()};$('load').onclick=()=>{seedWeek();render();setStatus(officeRoster().length+' personnel loaded for '+state.office+'.')};$('prevWeek').onclick=()=>moveWeek(-7);$('nextWeek').onclick=()=>moveWeek(7);$('search').oninput=e=>{state.search=e.target.value;renderGrid()};
+  google.script.run.withSuccessHandler(init).withFailureHandler(err=>setStatus('Error: '+(err&&err.message?err.message:err))).getBootstrapData(window.INITIAL_UNIT_KEY||'');
+})();
 </script>
