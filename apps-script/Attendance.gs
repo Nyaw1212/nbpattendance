@@ -1,4 +1,19 @@
 const ATTENDANCE_SHEET_ = 'ATTENDANCE_BACKUP';
+const ATTENDANCE_CACHE_SECONDS_ = 300;
+
+function attendanceCacheKey_(camp, office, weekStart, weekEnd) {
+  const raw = [String(camp), String(office), String(weekStart), String(weekEnd)].join('|');
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw, Utilities.Charset.UTF_8);
+  return 'attendance:' + Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, '');
+}
+
+function getAttendanceCache_() {
+  return CacheService.getScriptCache();
+}
+
+function invalidateAttendanceCache_(camp, office, weekStart, weekEnd) {
+  getAttendanceCache_().remove(attendanceCacheKey_(camp, office, weekStart, weekEnd));
+}
 
 function ensureAttendanceSheet_() {
   const ss = getSpreadsheet_();
@@ -83,9 +98,8 @@ function saveAttendanceWeek(payload) {
   const entries = normalizeAttendanceEntries_(payload.entries);
   if (!entries.length) throw new Error('No valid attendance entries supplied.');
 
-  // Neon is the primary attendance store. Do not create a successful backup-only
-  // transaction if the primary database write fails.
   const neonSaved = saveNeonAttendance_(entries, payload.camp, payload.office);
+  invalidateAttendanceCache_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
 
   let backup;
   try {
@@ -116,7 +130,33 @@ function loadAttendanceWeek(payload) {
     throw new Error('Camp, office, weekStart, and weekEnd are required.');
   }
 
+  const cache = getAttendanceCache_();
+  const cacheKey = attendanceCacheKey_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
+  const cached = cache.get(cacheKey);
+
+  if (cached) {
+    try {
+      const records = JSON.parse(cached);
+      return {
+        ok: true,
+        source: 'cache',
+        records: records,
+        count: records.length
+      };
+    } catch (ignore) {
+      cache.remove(cacheKey);
+    }
+  }
+
   const records = loadNeonAttendance_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
+
+  try {
+    const json = JSON.stringify(records);
+    if (json.length < 95000) {
+      cache.put(cacheKey, json, ATTENDANCE_CACHE_SECONDS_);
+    }
+  } catch (ignore) {}
+
   return {
     ok: true,
     source: 'neon',
