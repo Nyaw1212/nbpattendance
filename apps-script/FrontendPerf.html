@@ -1,0 +1,88 @@
+<script>
+(function(){
+  const started = performance.now();
+  const marks = {};
+  const once = {};
+
+  function elapsed(){ return Math.round(performance.now() - started); }
+  function mark(name, extra){
+    if (once[name]) return;
+    once[name] = true;
+    marks[name] = elapsed();
+    console.log('[PERF] ' + name + ': ' + marks[name] + ' ms' + (extra ? ' ' + extra : ''));
+  }
+  function report(){
+    const out = {
+      pageScriptStartMs: 0,
+      campsReadyMs: marks.campsReady || null,
+      officesReadyMs: marks.officesReady || null,
+      selectorsReadyMs: marks.selectorsReady || null,
+      gridFirstRenderMs: marks.gridFirstRender || null,
+      attendanceReadyMs: marks.attendanceReady || null,
+      totalReadyMs: marks.attendanceReady || marks.gridFirstRender || elapsed()
+    };
+    console.log('[PERF] FRONTEND PROFILE', out);
+    window.__attendanceFrontendPerf = out;
+  }
+
+  mark('pageScriptStart');
+
+  function watchSelectors(){
+    const camp = document.getElementById('camp');
+    const office = document.getElementById('office');
+    if (!camp || !office) return;
+
+    const check = function(){
+      if (camp.options && camp.options.length) mark('campsReady', 'count=' + camp.options.length);
+      if (office.options && office.options.length) mark('officesReady', 'count=' + office.options.length);
+      if (camp.options.length && office.options.length) mark('selectorsReady');
+    };
+
+    new MutationObserver(check).observe(camp, {childList:true, subtree:true});
+    new MutationObserver(check).observe(office, {childList:true, subtree:true});
+    check();
+  }
+
+  function watchGrid(){
+    const grid = document.getElementById('gridWrap');
+    if (!grid) return;
+    const check = function(){
+      const rows = grid.querySelectorAll('tbody tr').length;
+      if (rows) mark('gridFirstRender', 'rows=' + rows);
+    };
+    new MutationObserver(check).observe(grid, {childList:true, subtree:true});
+    check();
+  }
+
+  function watchStatus(){
+    const status = document.getElementById('status');
+    if (!status) return;
+    const check = function(){
+      const text = String(status.textContent || '').trim();
+      if (/Loaded\s+\d+\s+attendance records/i.test(text) || /attendance records from/i.test(text)) {
+        mark('attendanceReady', text);
+        report();
+      }
+    };
+    new MutationObserver(check).observe(status, {childList:true, subtree:true, characterData:true});
+    check();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){
+      mark('domContentLoaded');
+      watchSelectors();
+      watchGrid();
+      watchStatus();
+    }, {once:true});
+  } else {
+    mark('domContentLoaded');
+    watchSelectors();
+    watchGrid();
+    watchStatus();
+  }
+
+  window.addEventListener('load', function(){ mark('windowLoad'); }, {once:true});
+  window.getAttendanceFrontendPerf = function(){ report(); return window.__attendanceFrontendPerf || marks; };
+})();
+</script>
