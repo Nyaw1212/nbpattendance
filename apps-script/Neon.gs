@@ -10,7 +10,9 @@ function getNeonConnection_() {
     throw new Error('Neon is not configured. Set NEON_HOST, NEON_PORT, NEON_DATABASE, NEON_USER, and NEON_PASSWORD in Script Properties.');
   }
 
-  const url = 'jdbc:postgresql://' + host + ':' + port + '/' + database + '?sslmode=require';
+  // Apps Script JDBC rejects the PostgreSQL sslmode property. The Neon
+  // connection has already been verified successfully without this option.
+  const url = 'jdbc:postgresql://' + host + ':' + port + '/' + database;
   return Jdbc.getConnection(url, user, password);
 }
 
@@ -108,4 +110,29 @@ function loadNeonAttendance_(camp, office, weekStart, weekEnd) {
     if (stmt) stmt.close();
     if (conn) conn.close();
   }
+}
+
+// Public Apps Script function called by the web app.
+function loadAttendanceWeek(payload) {
+  if (!payload || !payload.camp || !payload.office || !payload.weekStart || !payload.weekEnd) {
+    throw new Error('Camp, office, weekStart, and weekEnd are required.');
+  }
+
+  const records = loadNeonAttendance_(
+    String(payload.camp),
+    String(payload.office),
+    String(payload.weekStart),
+    String(payload.weekEnd)
+  );
+
+  return {
+    ok: true,
+    source: 'neon',
+    records: records,
+    count: records.length,
+    camp: String(payload.camp),
+    office: String(payload.office),
+    weekStart: String(payload.weekStart),
+    weekEnd: String(payload.weekEnd)
+  };
 }
