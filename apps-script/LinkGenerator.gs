@@ -21,12 +21,11 @@ function normalizeOfficeSlug_(value) {
     .replace(/-+/g, '-');
 }
 
-function officeUnitKey_(camp, office, sortOrder) {
+function officeUnitKey_(camp, office) {
   const campSlug = normalizeOfficeSlug_(camp) || 'unit';
   const officeSlug = normalizeOfficeSlug_(office) || 'office';
-  const sort = String(Math.max(0, Number(sortOrder) || 0)).padStart(3, '0');
   const random = Utilities.getUuid().replace(/-/g, '').slice(0, 8).toLowerCase();
-  return [campSlug, sort, officeSlug, random].join('-');
+  return [campSlug, officeSlug, random].join('-');
 }
 
 function getOfficeDirectorySheet_() {
@@ -174,12 +173,11 @@ function generateOfficeLinkForRow_(sheet, row) {
 
   const camp = String(sheet.getRange(row, 1).getDisplayValue() || '').trim();
   const office = String(sheet.getRange(row, 2).getDisplayValue() || '').trim();
-  const sortOrder = Number(sheet.getRange(row, 4).getDisplayValue() || 0);
   if (!camp || !office) throw new Error('CAMP and OFFICE are required on row ' + row + '.');
 
   let unitKey = String(sheet.getRange(row, cols.unitKeyCol).getDisplayValue() || '').trim();
   if (!unitKey || /^(yes|no)$/i.test(unitKey)) {
-    unitKey = officeUnitKey_(camp, office, sortOrder);
+    unitKey = officeUnitKey_(camp, office);
     sheet.getRange(row, cols.unitKeyCol).setValue(unitKey);
   }
 
@@ -190,6 +188,6 @@ function generateOfficeLinkForRow_(sheet, row) {
   clearReferenceDataCache();
   SpreadsheetApp.flush();
 
-  console.log('Office link generated: ' + camp + ' | sort=' + sortOrder + ' | ' + office + ' | ' + url);
-  return { row: row, camp: camp, office: office, sortOrder: sortOrder, unitKey: unitKey, url: url };
+  console.log('Office link generated: ' + camp + ' | ' + office + ' | ' + url);
+  return { row: row, camp: camp, office: office, unitKey: unitKey, url: url };
 }
