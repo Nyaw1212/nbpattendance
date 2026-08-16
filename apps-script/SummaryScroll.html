@@ -1,5 +1,15 @@
 <script>
 (function(){
+  const HOVER_DELAY_MS=450;
+  const SAFE_LEFT_EDGE_PX=34;
+  let hoverTimer=null;
+  let pendingRow=null;
+
+  function cancelPending(){
+    if(hoverTimer){ clearTimeout(hoverTimer); hoverTimer=null; }
+    pendingRow=null;
+  }
+
   function scrollSummaryPersonIntoView(summaryRow){
     if(!summaryRow) return;
     const badge=summaryRow.dataset.summary;
@@ -22,19 +32,39 @@
     const visibleTop=gridRect.top+headerHeight;
     const visibleBottom=gridRect.bottom;
 
-    // Only move the list when the personnel row is outside the visible grid.
     if(rowRect.top < visibleTop || rowRect.bottom > visibleBottom){
       const target=grid.scrollTop+(rowRect.top-visibleTop)-12;
       grid.scrollTo({top:Math.max(0,target),behavior:'smooth'});
     }
   }
 
-  // Delegation keeps working because the summary list is re-rendered often.
-  document.addEventListener('mouseover',function(e){
+  // Auto-scroll only after the pointer deliberately rests inside the summary card.
+  // The first 34px on the card's left edge is a dead zone so crossing over from
+  // the attendance scrollbar cannot accidentally move the personnel list.
+  document.addEventListener('mousemove',function(e){
+    const row=e.target.closest && e.target.closest('.case-row[data-summary]');
+    if(!row){ cancelPending(); return; }
+
+    const rect=row.getBoundingClientRect();
+    if(e.clientX < rect.left + SAFE_LEFT_EDGE_PX){
+      cancelPending();
+      return;
+    }
+
+    if(pendingRow===row) return;
+    cancelPending();
+    pendingRow=row;
+    hoverTimer=setTimeout(function(){
+      if(pendingRow===row) scrollSummaryPersonIntoView(row);
+      hoverTimer=null;
+    },HOVER_DELAY_MS);
+  });
+
+  document.addEventListener('mouseout',function(e){
     const row=e.target.closest && e.target.closest('.case-row[data-summary]');
     if(!row) return;
     if(e.relatedTarget && row.contains(e.relatedTarget)) return;
-    scrollSummaryPersonIntoView(row);
+    if(pendingRow===row) cancelPending();
   });
 })();
 </script>
