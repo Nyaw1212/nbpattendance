@@ -1,0 +1,64 @@
+<script>
+(function(){
+  const unitKey=String(window.INITIAL_UNIT_KEY||'').trim();
+  if(!unitKey) return; // Only individual office links get this header status.
+
+  const bar=document.getElementById('shiftStatusBar');
+  const clock=document.getElementById('shiftClock');
+  const shiftEl=document.getElementById('currentShift');
+  const statusEl=document.getElementById('submissionStatus');
+  if(!bar||!clock||!shiftEl||!statusEl) return;
+
+  let serverBaseMs=Date.now();
+  let receivedAtMs=Date.now();
+
+  function formatClock(ms){
+    return new Intl.DateTimeFormat('en-US',{
+      timeZone:'Asia/Manila',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true
+    }).format(new Date(ms));
+  }
+
+  function tick(){
+    const now=serverBaseMs+(Date.now()-receivedAtMs);
+    clock.textContent=formatClock(now);
+  }
+
+  function render(data){
+    if(!data||!data.individualLink) return;
+    bar.hidden=false;
+    shiftEl.textContent=data.shift||'—';
+    statusEl.textContent=data.updated ? '✓ UPDATED' : 'DUE FOR SUBMISSION';
+    statusEl.classList.toggle('updated',!!data.updated);
+    statusEl.classList.toggle('due',!data.updated);
+    if(data.serverDate&&data.serverTime){
+      serverBaseMs=new Date(data.serverDate+'T'+data.serverTime+'+08:00').getTime();
+      receivedAtMs=Date.now();
+    }
+    tick();
+  }
+
+  function refresh(){
+    google.script.run
+      .withSuccessHandler(render)
+      .withFailureHandler(function(err){
+        bar.hidden=false;
+        statusEl.textContent='STATUS UNAVAILABLE';
+        statusEl.classList.remove('updated','due');
+        console.error('Shift status load failed:',err);
+      })
+      .getOfficeSubmissionStatus(unitKey);
+  }
+
+  refresh();
+  setInterval(tick,1000);
+  setInterval(refresh,60000);
+
+  // Refresh promptly after a successful Save Week message appears.
+  const status=document.getElementById('status');
+  if(status){
+    new MutationObserver(function(){
+      if(/^Saved\b/i.test(status.textContent||'')) setTimeout(refresh,250);
+    }).observe(status,{childList:true,characterData:true,subtree:true});
+  }
+})();
+</script>
