@@ -59,6 +59,7 @@ function key(employeeKey: string, date: string) { return `${employeeKey}|${date}
 function defaultStatus(dayIndex: number): Status { return dayIndex === 0 || dayIndex === 6 ? 'OFF' : 'PRESENT'; }
 function leaveCode(value?: string) { if (!value) return 'L'; const match = value.match(/\(([^)]+)\)/); if (match?.[1]) return match[1].toUpperCase(); const words = value.trim().split(/\s+/).filter(Boolean); if (words.length === 1) return words[0].slice(0, 3).toUpperCase(); return words.map(w => w[0]).join('').slice(0, 3).toUpperCase(); }
 function caseLabel(cell: Cell) { if (cell.status === 'LEAVE') return cell.leaveType ? leaveCode(cell.leaveType) : 'LEAVE'; return LABEL[cell.status] || cell.status; }
+function shortDate(value: string) { return parseIso(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
 
 export default function Home() {
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
@@ -87,6 +88,21 @@ export default function Home() {
   const activeDate = useMemo(() => parseIso(activeDay), [activeDay]);
   const abnormalCases = useMemo(() => officeRoster.map(person => ({ person, cell: cells[key(person.badgeNumber, activeDay)] || { status: 'UNRECORDED' as Status } })).filter(item => item.cell.status !== 'PRESENT' && item.cell.status !== 'OFF' && item.cell.status !== 'ACT').sort((a, b) => a.cell.status.localeCompare(b.cell.status) || a.person.fullName.localeCompare(b.person.fullName)), [officeRoster, cells, activeDay]);
   const abnormalCounts = useMemo(() => { const counts = { LEAVE: 0, OB: 0, ABSENT: 0, UNRECORDED: 0 }; abnormalCases.forEach(({ cell }) => { if (cell.status in counts) counts[cell.status as keyof typeof counts]++; }); return counts; }, [abnormalCases]);
+
+  function getCaseRange(employeeKey: string, cell: Cell) {
+    const exact = pendingRanges.find(r => r.employeeKey === employeeKey && r.status === cell.status && (r.leaveType || '') === (cell.leaveType || '') && activeDay >= r.startDate && activeDay <= r.endDate);
+    if (exact) return { startDate: exact.startDate, endDate: exact.endDate, days: datesBetween(exact.startDate, exact.endDate).length };
+
+    const weekDates = week.map(iso);
+    const activeIndex = weekDates.indexOf(activeDay);
+    if (activeIndex < 0) return { startDate: activeDay, endDate: activeDay, days: 1 };
+    const matches = (dayIso: string) => { const other = cells[key(employeeKey, dayIso)]; return !!other && other.status === cell.status && (other.leaveType || '') === (cell.leaveType || ''); };
+    let left = activeIndex;
+    let right = activeIndex;
+    while (left > 0 && matches(weekDates[left - 1])) left--;
+    while (right < weekDates.length - 1 && matches(weekDates[right + 1])) right++;
+    return { startDate: weekDates[left], endDate: weekDates[right], days: right - left + 1 };
+  }
 
   useEffect(() => { fetch('/api/reference').then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Unable to load reference data.'); setPersonnel(data.personnel || []); setOffices(data.offices || []); setLeaveTypes(data.leaveTypes || []); setMessage(`${data.personnel?.length || 0} personnel available.`); const firstCamp = data.offices?.[0]?.camp || ''; setCamp(firstCamp); setOffice(data.offices?.find((x: Office) => x.camp === firstCamp)?.office || ''); }).catch(e => setMessage(e.message)); }, []);
   useEffect(() => { setActiveDay(date); }, [date]);
@@ -169,7 +185,7 @@ export default function Home() {
     <header className="app-head"><div><h1>Attendance Center</h1><p>Weekly office attendance recorder</p></div></header>
     <div className="controls"><label><span>WEEK CONTAINING</span><input type="date" value={date} onChange={e => setDate(e.target.value)} /></label><label><span>CAMP</span><select value={camp} onChange={e => { setCamp(e.target.value); setOffice(''); }}><option value="">Select camp</option>{camps.map(c => <option key={c}>{c}</option>)}</select></label><label><span>OFFICE</span><select value={office} onChange={e => setOffice(e.target.value)}><option value="">Select office</option>{officeOptions.map(o => <option key={o.office}>{o.office}</option>)}</select></label><label><span>DUTY PRESET</span><select><option>Normal Office Days</option></select></label><button className="primary" onClick={loadWeek} disabled={busy}>Load Week</button><button onClick={applyPreset} disabled={busy || !office}>Apply Preset</button></div>
 
-    <section className="daily-focus"><div className="abnormal-panel"><div className="abnormal-head"><div><span>SUMMARY OF PERSONNEL STATUSES / MOVEMENT</span><strong>{activeDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong></div><div className="case-count">{abnormalCases.length}</div></div><div className="case-chips"><span>Leave <b>{abnormalCounts.LEAVE}</b></span><span>OB <b>{abnormalCounts.OB}</b></span><span>Absent <b>{abnormalCounts.ABSENT}</b></span><span>Unrecorded <b>{abnormalCounts.UNRECORDED}</b></span></div><div className="case-list">{abnormalCases.length === 0 ? <div className="no-cases">No personnel statuses or movements to show for this day.</div> : abnormalCases.map(({ person, cell }) => <div className="case-row" key={person.badgeNumber}><div><b>{person.fullName}</b><small>{person.rank} · Badge {person.badgeNumber}</small></div><span className={`case-status case-${cell.status.toLowerCase()}`} title={cell.leaveType || cell.status}>{caseLabel(cell)}</span></div>)}</div></div></section>
+    <section className="daily-focus"><div className="abnormal-panel"><div className="abnormal-head"><div><span>SUMMARY OF PERSONNEL STATUSES / MOVEMENT</span><strong>{activeDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong></div><div className="case-count">{abnormalCases.length}</div></div><div className="case-chips"><span>Leave <b>{abnormalCounts.LEAVE}</b></span><span>OB <b>{abnormalCounts.OB}</b></span><span>Absent <b>{abnormalCounts.ABSENT}</b></span><span>Unrecorded <b>{abnormalCounts.UNRECORDED}</b></span></div><div className="case-list">{abnormalCases.length === 0 ? <div className="no-cases">No personnel statuses or movements to show for this day.</div> : abnormalCases.map(({ person, cell }) => { const range = getCaseRange(person.badgeNumber, cell); return <div className="case-row" key={person.badgeNumber}><div><b>{person.fullName}</b><small>{person.rank} · Badge {person.badgeNumber}</small><small style={{ marginTop: 4, fontWeight: 800, color: '#4f6b57' }}>{shortDate(range.startDate)} → {shortDate(range.endDate)} · {range.days} day{range.days === 1 ? '' : 's'}</small></div><span className={`case-status case-${cell.status.toLowerCase()}`} title={cell.leaveType || cell.status}>{caseLabel(cell)}</span></div>; })}</div></div></section>
 
     <div className="toolbar"><button onClick={() => moveWeek(-7)}>‹ Previous</button><strong>{week[0].toLocaleDateString()} – {week[6].toLocaleDateString()}</strong><button onClick={() => moveWeek(7)}>Next ›</button><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search personnel..." /><span className="hint">P → O → L → OB → A → — · ⋯ = details / status</span><button onClick={clearWeek}>Clear Week</button></div>
 
