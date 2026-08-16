@@ -1,0 +1,81 @@
+<style>
+.attendance-counts{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:7px 12px;border-bottom:1px solid var(--line);background:#fbfdfb;min-height:38px}.attendance-counts .count-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid #d7e2da;border-radius:999px;padding:5px 9px;background:white;color:#496652;font-size:11px;font-weight:700}.attendance-counts .count-chip b{color:#0b4a29;font-size:12px}.attendance-counts .count-chip.special{background:#fff9df;border-color:#ead67a}.attendance-counts .count-chip.status{background:#f3f8f4}.attendance-counts .count-date{margin-left:auto;color:#718076;font-size:10px;white-space:nowrap}
+@media(max-width:720px){.attendance-counts .count-date{width:100%;margin-left:0}}
+</style>
+<script>
+(function(){
+  const STATUS_LABELS={
+    OB:'OB',A:'Absent',ABSENT:'Absent',ACT:'Active',TRN:'Training',UI:'Under Investigation',
+    AWOL:'AWOL',AWA:'AWA',SUS:'Suspended',DET:'Detained',DEC:'Deceased',DIS:'Dismissed',RET:'Retired'
+  };
+
+  function ensureStrip(){
+    let strip=document.getElementById('attendanceCounts');
+    if(strip)return strip;
+    const toolbar=document.querySelector('.attendance-pane .toolbar');
+    if(!toolbar)return null;
+    strip=document.createElement('div');
+    strip.id='attendanceCounts';
+    strip.className='attendance-counts';
+    toolbar.insertAdjacentElement('afterend',strip);
+    return strip;
+  }
+
+  function updateCounts(){
+    const strip=ensureStrip();
+    const table=document.querySelector('.attendance-grid');
+    if(!strip||!table)return;
+
+    const rows=Array.from(table.querySelectorAll('tbody tr'));
+    const headers=Array.from(table.querySelectorAll('thead th'));
+    const activeIndex=headers.findIndex(th=>th.classList.contains('active-day'));
+
+    let html='<span class="count-chip"><span>Personnel</span><b>'+rows.length+'</b></span>';
+
+    if(activeIndex>0){
+      let leaveCount=0;
+      const statuses={};
+      rows.forEach(row=>{
+        const cells=row.querySelectorAll('td');
+        const td=cells[activeIndex];
+        if(!td)return;
+        const btn=td.querySelector('.status-btn');
+        if(!btn||!btn.classList.contains('status-special'))return;
+        const code=(btn.textContent||'').trim().toUpperCase();
+        if(STATUS_LABELS[code]){
+          const label=STATUS_LABELS[code];
+          statuses[label]=(statuses[label]||0)+1;
+        }else{
+          leaveCount++;
+        }
+      });
+
+      if(leaveCount>0)html+='<span class="count-chip special"><span>Leave</span><b>'+leaveCount+'</b></span>';
+      Object.keys(statuses).sort().forEach(label=>{
+        html+='<span class="count-chip status"><span>'+label+'</span><b>'+statuses[label]+'</b></span>';
+      });
+
+      const head=headers[activeIndex];
+      const day=head.querySelector('.day-head span');
+      const date=head.querySelector('.day-head small');
+      if(day&&date)html+='<span class="count-date">'+day.textContent+' '+date.textContent+'</span>';
+    }
+
+    strip.innerHTML=html;
+  }
+
+  function schedule(){setTimeout(updateCounts,0)}
+
+  const start=()=>{
+    ensureStrip();
+    updateCounts();
+    const grid=document.getElementById('gridWrap');
+    if(grid)new MutationObserver(schedule).observe(grid,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+    document.addEventListener('click',schedule,true);
+    document.addEventListener('input',schedule,true);
+    document.addEventListener('change',schedule,true);
+  };
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();
+</script>
