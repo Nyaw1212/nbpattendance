@@ -5,9 +5,9 @@ const OFFICE_MONITOR_HEADERS_ = [
   'LAST UPDATED',
   'LAST UPDATE TIME',
   'LAST SHIFT',
-  '0600H',
-  '1400H',
-  '2200H'
+  '0000H',
+  '0800H',
+  '1600H'
 ];
 
 function normalizeOfficeSlug_(value) {
@@ -64,9 +64,9 @@ function ensureOfficeMonitorColumns_(sheet) {
 
 function attendanceShiftForDate_(date) {
   const hour = Number(Utilities.formatDate(date, OFFICE_MONITOR_TIMEZONE_, 'H'));
-  if (hour >= 6 && hour < 14) return '0600H';
-  if (hour >= 14 && hour < 22) return '1400H';
-  return '2200H';
+  if (hour < 8) return '0000H';
+  if (hour < 16) return '0800H';
+  return '1600H';
 }
 
 function findOfficeDirectoryRow_(sheet, camp, office) {
@@ -101,9 +101,9 @@ function markOfficeAttendanceUpdated_(camp, office, savedAt) {
 
   const previousLastUpdated = String(sheet.getRange(row, cols['LAST UPDATED']).getDisplayValue() || '').trim();
   if (previousLastUpdated && previousLastUpdated !== today) {
-    sheet.getRange(row, cols['0600H']).clearContent();
-    sheet.getRange(row, cols['1400H']).clearContent();
-    sheet.getRange(row, cols['2200H']).clearContent();
+    sheet.getRange(row, cols['0000H']).clearContent();
+    sheet.getRange(row, cols['0800H']).clearContent();
+    sheet.getRange(row, cols['1600H']).clearContent();
   }
 
   sheet.getRange(row, cols['UPDATED TODAY']).setValue('YES');
