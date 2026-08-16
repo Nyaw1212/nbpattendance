@@ -56,8 +56,11 @@ function saveNeonAttendance_(entries, camp, office) {
       stmt.setString(1, String(entry[0]));
       stmt.setString(2, String(entry[1]));
       stmt.setString(3, String(entry[2]));
-      if (entry[3] == null || entry[3] === '') stmt.setNull(4, Jdbc.TYPE_VARCHAR);
+
+      // java.sql.Types.VARCHAR = 12. Apps Script does not expose Jdbc.TYPE_VARCHAR.
+      if (entry[3] == null || entry[3] === '') stmt.setNull(4, 12);
       else stmt.setString(4, String(entry[3]));
+
       stmt.setString(5, String(camp));
       stmt.setString(6, String(office));
       stmt.addBatch();
@@ -77,15 +80,10 @@ function saveNeonAttendance_(entries, camp, office) {
   }
 }
 
-function loadNeonAttendance_(camp, office, weekStart, weekEnd, perf) {
+function loadNeonAttendance_(camp, office, weekStart, weekEnd) {
   let conn, stmt, rs;
-  const started = Date.now();
   try {
-    const connectStarted = Date.now();
     conn = getNeonConnection_();
-    if (perf) perf.neonConnectMs = Date.now() - connectStarted;
-
-    const prepareStarted = Date.now();
     stmt = conn.prepareStatement([
       'SELECT employee_key, attendance_date::text, status, leave_type',
       'FROM nbp_attendance.attendance',
@@ -98,13 +96,8 @@ function loadNeonAttendance_(camp, office, weekStart, weekEnd, perf) {
     stmt.setString(2, String(weekEnd));
     stmt.setString(3, String(camp));
     stmt.setString(4, String(office));
-    if (perf) perf.neonPrepareMs = Date.now() - prepareStarted;
-
-    const queryStarted = Date.now();
     rs = stmt.executeQuery();
-    if (perf) perf.neonQueryMs = Date.now() - queryStarted;
 
-    const readStarted = Date.now();
     const records = [];
     while (rs.next()) {
       records.push({
@@ -114,10 +107,6 @@ function loadNeonAttendance_(camp, office, weekStart, weekEnd, perf) {
         leave_type: rs.getString(4)
       });
     }
-    if (perf) {
-      perf.neonReadMs = Date.now() - readStarted;
-      perf.neonTotalMs = Date.now() - started;
-    }
     return records;
   } finally {
     if (rs) rs.close();
@@ -125,6 +114,3 @@ function loadNeonAttendance_(camp, office, weekStart, weekEnd, perf) {
     if (conn) conn.close();
   }
 }
-
-// IMPORTANT: loadAttendanceWeek(payload) lives in Attendance.gs.
-// Keep a single public loader so cache/sheet fallback cannot be bypassed.
