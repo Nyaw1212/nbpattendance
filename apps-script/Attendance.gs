@@ -73,11 +73,16 @@ function compactJsonToRecords_(json) {
 function putAttendanceCache_(cacheKey, records) {
   try {
     const json = recordsToCompactJson_(records);
-    // CacheService value limit is finite; compact arrays keep this well below it.
-    if (Utilities.newBlob(json).getBytes().length >= 95000) return false;
+    const bytes = Utilities.newBlob(json).getBytes().length;
+    if (bytes >= 95000) {
+      console.log('Attendance cache skipped: payload is ' + bytes + ' bytes.');
+      return false;
+    }
     const cache = getAttendanceCache_();
     cache.put(cacheKey, json, ATTENDANCE_CACHE_SECONDS_);
-    return !!cache.get(cacheKey); // verify the write instead of assuming it worked
+    const verified = cache.get(cacheKey);
+    console.log('Attendance cache write: bytes=' + bytes + ', verified=' + !!verified);
+    return !!verified;
   } catch (err) {
     console.log('Attendance cache write skipped: ' + err.message);
     return false;
@@ -141,20 +146,35 @@ function loadAttendanceBackup_(camp, office, weekStart, weekEnd) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;
 
-  // Read newest first in moderate blocks so we usually find the matching week quickly.
+  const wantedCamp = String(camp).trim();
+  const wantedOffice = String(office).trim();
+  const wantedStart = String(weekStart).trim();
+  const wantedEnd = String(weekEnd).trim();
+
+  // Use display values so dates formatted by Sheets compare as YYYY-MM-DD text
+  // instead of JavaScript Date objects.
   const blockSize = 200;
   for (let end = lastRow; end >= 2; end -= blockSize) {
     const start = Math.max(2, end - blockSize + 1);
-    const values = sheet.getRange(start, 1, end - start + 1, 8).getValues();
-    for (let i = values.length - 1; i >= 0; i--) {
-      const row = values[i];
-      if (String(row[2]) !== String(camp) ||
-          String(row[3]) !== String(office) ||
-          String(row[4]) !== String(weekStart) ||
-          String(row[5]) !== String(weekEnd)) continue;
+    const range = sheet.getRange(start, 1, end - start + 1, 8);
+    const display = range.getDisplayValues();
+    const raw = range.getValues();
+
+    for (let i = display.length - 1; i >= 0; i--) {
+      const row = display[i];
+      if (String(row[2]).trim() !== wantedCamp ||
+          String(row[3]).trim() !== wantedOffice) continue;
+
+      // Prefer the canonical dates inside the JSON blob. This is immune to
+      // whatever date formatting the sheet applies to columns E/F.
       try {
-        const backup = JSON.parse(String(row[7] || ''));
+        const jsonText = String(raw[i][7] || row[7] || '');
+        const backup = JSON.parse(jsonText);
         if (!backup || !Array.isArray(backup.entries)) continue;
+        if (String(backup.dateFrom || '').trim() !== wantedStart ||
+            String(backup.dateTo || '').trim() !== wantedEnd) continue;
+
+        console.log('Attendance sheet-cache hit: transaction=' + (backup.transactionId || row[0] || ''));
         return {
           transactionId: backup.transactionId || String(row[0] || ''),
           savedAt: backup.savedAt || String(row[1] || ''),
@@ -163,6 +183,8 @@ function loadAttendanceBackup_(camp, office, weekStart, weekEnd) {
       } catch (ignore) {}
     }
   }
+
+  console.log('Attendance sheet-cache miss for ' + wantedCamp + ' | ' + wantedOffice + ' | ' + wantedStart + ' → ' + wantedEnd);
   return null;
 }
 
@@ -190,7 +212,6 @@ function saveAttendanceWeek(payload) {
     };
   }
 
-  // Prime L1 cache immediately with the exact data just persisted to Neon.
   const cacheKey = attendanceCacheKey_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
   putAttendanceCache_(cacheKey, entriesToRecords_(entries));
 
@@ -212,13 +233,12 @@ function loadAttendanceWeek(payload) {
 
   const cacheKey = attendanceCacheKey_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
 
-  // L1: volatile Apps Script cache — fastest path.
   const cachedRecords = getAttendanceCacheRecords_(cacheKey);
   if (cachedRecords) {
+    console.log('Attendance L1 cache hit: ' + cachedRecords.length + ' records.');
     return { ok: true, source: 'cache', records: cachedRecords, count: cachedRecords.length };
   }
 
-  // L2: persistent transaction backup in Sheets — much faster than opening JDBC.
   const backup = loadAttendanceBackup_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
   if (backup && backup.records && backup.records.length) {
     putAttendanceCache_(cacheKey, backup.records);
@@ -231,7 +251,6 @@ function loadAttendanceWeek(payload) {
     };
   }
 
-  // L3: Neon is authoritative when no warm copy exists.
   const records = loadNeonAttendance_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
   putAttendanceCache_(cacheKey, records);
 
