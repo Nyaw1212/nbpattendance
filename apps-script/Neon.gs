@@ -56,27 +56,41 @@ function saveNeonAttendance_(entries, camp, office, perf) {
     stmt = conn.prepareStatement(sql);
     perf.neonPrepareMs = Date.now() - t;
 
+    // Apps Script supports executeBatch(parameters), which avoids hundreds of
+    // repeated setString()/addBatch() calls in server-side JavaScript.
     t = Date.now();
-    entries.forEach(function(entry) {
-      stmt.setString(1, String(entry[0]));
-      stmt.setString(2, String(entry[1]));
-      stmt.setString(3, String(entry[2]));
-      if (entry[3] == null || entry[3] === '') stmt.setNull(4, 12);
-      else stmt.setString(4, String(entry[3]));
-      stmt.setString(5, String(camp));
-      stmt.setString(6, String(office));
-      stmt.addBatch();
+    const params = entries.map(function(entry) {
+      return [
+        String(entry[0]),
+        String(entry[1]),
+        String(entry[2]),
+        entry[3] == null || entry[3] === '' ? null : String(entry[3]),
+        String(camp),
+        String(office)
+      ];
     });
     perf.neonBindMs = Date.now() - t;
 
     t = Date.now();
-    stmt.executeBatch();
+    const batchResult = stmt.executeBatch(params);
     perf.neonBatchMs = Date.now() - t;
+    perf.neonBatchCount = batchResult ? batchResult.length : 0;
 
     t = Date.now();
     conn.commit();
     perf.neonCommitMs = Date.now() - t;
     perf.neonTotalMs = Date.now() - totalStarted;
+
+    console.log('NEON SAVE PERFORMANCE ' + JSON.stringify({
+      rows: entries.length,
+      connectMs: perf.neonConnectMs,
+      prepareMs: perf.neonPrepareMs,
+      buildParamsMs: perf.neonBindMs,
+      executeBatchMs: perf.neonBatchMs,
+      commitMs: perf.neonCommitMs,
+      totalMs: perf.neonTotalMs
+    }));
+
     return entries.length;
   } catch (err) {
     if (conn) {
