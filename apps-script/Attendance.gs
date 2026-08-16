@@ -49,6 +49,52 @@ function normalizeAttendanceEntries_(rawEntries) {
   return Object.keys(deduped).sort().map(function(k) { return deduped[k]; });
 }
 
+function entriesToRecords_(entries) {
+  return (entries || []).map(function(e) {
+    return {
+      employee_key: String(e[0]),
+      attendance_date: String(e[1]),
+      status: String(e[2]),
+      leave_type: e[3] == null || e[3] === '' ? null : String(e[3])
+    };
+  });
+}
+
+function recordsToCompactJson_(records) {
+  return JSON.stringify((records || []).map(function(r) {
+    return [r.employee_key, r.attendance_date, r.status, r.leave_type == null ? null : r.leave_type];
+  }));
+}
+
+function compactJsonToRecords_(json) {
+  return entriesToRecords_(JSON.parse(json));
+}
+
+function putAttendanceCache_(cacheKey, records) {
+  try {
+    const json = recordsToCompactJson_(records);
+    // CacheService value limit is finite; compact arrays keep this well below it.
+    if (Utilities.newBlob(json).getBytes().length >= 95000) return false;
+    const cache = getAttendanceCache_();
+    cache.put(cacheKey, json, ATTENDANCE_CACHE_SECONDS_);
+    return !!cache.get(cacheKey); // verify the write instead of assuming it worked
+  } catch (err) {
+    console.log('Attendance cache write skipped: ' + err.message);
+    return false;
+  }
+}
+
+function getAttendanceCacheRecords_(cacheKey) {
+  const cached = getAttendanceCache_().get(cacheKey);
+  if (!cached) return null;
+  try {
+    return compactJsonToRecords_(cached);
+  } catch (err) {
+    getAttendanceCache_().remove(cacheKey);
+    return null;
+  }
+}
+
 function appendAttendanceBackup_(entries, camp, office, weekStart, weekEnd) {
   const transactionId = Utilities.getUuid();
   const savedAt = new Date().toISOString();
@@ -90,6 +136,36 @@ function appendAttendanceBackup_(entries, camp, office, weekStart, weekEnd) {
   return { transactionId: transactionId, savedAt: savedAt, jsonCharacters: json.length };
 }
 
+function loadAttendanceBackup_(camp, office, weekStart, weekEnd) {
+  const sheet = ensureAttendanceSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+
+  // Read newest first in moderate blocks so we usually find the matching week quickly.
+  const blockSize = 200;
+  for (let end = lastRow; end >= 2; end -= blockSize) {
+    const start = Math.max(2, end - blockSize + 1);
+    const values = sheet.getRange(start, 1, end - start + 1, 8).getValues();
+    for (let i = values.length - 1; i >= 0; i--) {
+      const row = values[i];
+      if (String(row[2]) !== String(camp) ||
+          String(row[3]) !== String(office) ||
+          String(row[4]) !== String(weekStart) ||
+          String(row[5]) !== String(weekEnd)) continue;
+      try {
+        const backup = JSON.parse(String(row[7] || ''));
+        if (!backup || !Array.isArray(backup.entries)) continue;
+        return {
+          transactionId: backup.transactionId || String(row[0] || ''),
+          savedAt: backup.savedAt || String(row[1] || ''),
+          records: entriesToRecords_(backup.entries)
+        };
+      } catch (ignore) {}
+    }
+  }
+  return null;
+}
+
 function saveAttendanceWeek(payload) {
   if (!payload || !payload.camp || !payload.office || !payload.weekStart || !payload.weekEnd) {
     throw new Error('Camp, office, weekStart, and weekEnd are required.');
@@ -114,6 +190,10 @@ function saveAttendanceWeek(payload) {
     };
   }
 
+  // Prime L1 cache immediately with the exact data just persisted to Neon.
+  const cacheKey = attendanceCacheKey_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
+  putAttendanceCache_(cacheKey, entriesToRecords_(entries));
+
   return {
     ok: true,
     saved: neonSaved,
@@ -130,37 +210,30 @@ function loadAttendanceWeek(payload) {
     throw new Error('Camp, office, weekStart, and weekEnd are required.');
   }
 
-  const cache = getAttendanceCache_();
   const cacheKey = attendanceCacheKey_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
-  const cached = cache.get(cacheKey);
 
-  if (cached) {
-    try {
-      const records = JSON.parse(cached);
-      return {
-        ok: true,
-        source: 'cache',
-        records: records,
-        count: records.length
-      };
-    } catch (ignore) {
-      cache.remove(cacheKey);
-    }
+  // L1: volatile Apps Script cache — fastest path.
+  const cachedRecords = getAttendanceCacheRecords_(cacheKey);
+  if (cachedRecords) {
+    return { ok: true, source: 'cache', records: cachedRecords, count: cachedRecords.length };
   }
 
+  // L2: persistent transaction backup in Sheets — much faster than opening JDBC.
+  const backup = loadAttendanceBackup_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
+  if (backup && backup.records && backup.records.length) {
+    putAttendanceCache_(cacheKey, backup.records);
+    return {
+      ok: true,
+      source: 'sheet-cache',
+      transactionId: backup.transactionId,
+      records: backup.records,
+      count: backup.records.length
+    };
+  }
+
+  // L3: Neon is authoritative when no warm copy exists.
   const records = loadNeonAttendance_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
+  putAttendanceCache_(cacheKey, records);
 
-  try {
-    const json = JSON.stringify(records);
-    if (json.length < 95000) {
-      cache.put(cacheKey, json, ATTENDANCE_CACHE_SECONDS_);
-    }
-  } catch (ignore) {}
-
-  return {
-    ok: true,
-    source: 'neon',
-    records: records,
-    count: records.length
-  };
+  return { ok: true, source: 'neon', records: records, count: records.length };
 }
