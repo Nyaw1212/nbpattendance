@@ -127,7 +127,18 @@ export default function Home() {
   }
 
   function cycleCell(person: Personnel, day: Date) { setActiveDay(iso(day)); const k = key(person.badgeNumber, iso(day)); const current = cells[k]?.status || 'UNRECORDED'; const currentIndex = STATUS_ORDER.indexOf(current); const next = STATUS_ORDER[(currentIndex < 0 ? 0 : currentIndex + 1) % STATUS_ORDER.length]; setCells(prev => ({ ...prev, [k]: { status: next, leaveType: next === 'LEAVE' ? prev[k]?.leaveType : undefined } })); }
-  function chooseLeaveType(leaveType: string) { if (!leavePicker) return; const { person, day } = leavePicker; const k = key(person.badgeNumber, iso(day)); setCells(prev => ({ ...prev, [k]: { status: 'LEAVE', leaveType } })); setActiveDay(iso(day)); setMessage(`${leaveType} selected for ${person.fullName}. Choose DATE for a range, or close this window to keep it for ${iso(day)} only.`); }
+
+  function chooseLeaveType(leaveType: string) {
+    if (!leavePicker) return;
+    const target = leavePicker;
+    const { person, day } = target;
+    const k = key(person.badgeNumber, iso(day));
+    setCells(prev => ({ ...prev, [k]: { status: 'LEAVE', leaveType } }));
+    setActiveDay(iso(day));
+    setMessage(`${leaveType} selected for ${person.fullName}. Select the inclusive date range.`);
+    openRangeAfterModal(target, 'LEAVE', leaveType, () => setLeavePicker(null));
+  }
+
   function choosePersonnelStatus(status: Status, label: string) {
     if (!statusPicker) return;
     const target = statusPicker;
@@ -138,6 +149,7 @@ export default function Home() {
     setMessage(`${label} (${LABEL[status]}) selected for ${person.fullName}. Select the inclusive date range.`);
     openRangeAfterModal(target, status, undefined, () => setStatusPicker(null));
   }
+
   function applyDuration() { if (!rangePicker || !durationValue) return; const amount = Number(durationValue); if (!Number.isFinite(amount) || amount <= 0) return; setRangePicker(prev => prev ? { ...prev, endDate: addDuration(prev.startDate, amount, durationUnit) } : prev); }
   function applyRange() { if (!rangePicker) return; const days = datesBetween(rangePicker.startDate, rangePicker.endDate); if (!days.length) { setMessage('End date must be the same as or after the start date.'); return; } setCells(prev => { const next = { ...prev }; for (const day of days) next[key(rangePicker.employeeKey, day)] = { status: rangePicker.status, leaveType: rangePicker.leaveType }; return next; }); setPendingRanges(prev => [...prev.filter(r => !(r.employeeKey === rangePicker.employeeKey && r.status === rangePicker.status && r.leaveType === rangePicker.leaveType)), rangePicker]); setActiveDay(rangePicker.startDate); setMessage(`${rangePicker.status === 'LEAVE' ? rangePicker.leaveType || 'Leave' : LABEL[rangePicker.status] || rangePicker.status} applied from ${rangePicker.startDate} to ${rangePicker.endDate}. Save Week to commit.`); setRangePicker(null); }
   function applyPreset() { const next = { ...cells }; officeRoster.forEach(p => week.forEach((d, i) => { next[key(p.badgeNumber, iso(d))] = { status: defaultStatus(i) }; })); setCells(next); setMessage('Normal office-days preset applied.'); }
@@ -166,7 +178,7 @@ export default function Home() {
     <footer><span>{message}{pendingRanges.length ? ` · ${pendingRanges.length} range${pendingRanges.length === 1 ? '' : 's'} pending` : ''}</span><button className="primary" onClick={saveWeek} disabled={busy || !office}>Save Week</button></footer>
   </section>
 
-  {leavePicker && (() => { const current = cells[key(leavePicker.person.badgeNumber, iso(leavePicker.day))] || { status: 'LEAVE' as Status }; return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setLeavePicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Leave details"><div className="picker-head"><div><strong>Leave details</strong><span>{leavePicker.person.fullName} · {leavePicker.day.toLocaleDateString()}</span></div><button onClick={() => setLeavePicker(null)} aria-label="Close">×</button></div><div className="leave-options"><button onClick={() => openRangeAfterModal(leavePicker, 'LEAVE', current.leaveType, () => setLeavePicker(null))}><b>DATE</b><span>Set date range{current.leaveType ? ` for ${leaveCode(current.leaveType)}` : ''}</span></button><button onClick={() => { const target = leavePicker; setLeavePicker(null); setStatusPicker(target); }}><b>STS</b><span>Personnel status</span></button>{leaveTypes.length ? leaveTypes.map(type => <button key={type} onClick={() => chooseLeaveType(type)}><b>{leaveCode(type)}</b><span>{type}</span></button>) : <p>No leave types configured.</p>}</div></section></div>; })()}
+  {leavePicker && (() => { return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setLeavePicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Leave details"><div className="picker-head"><div><strong>Leave details</strong><span>{leavePicker.person.fullName} · {leavePicker.day.toLocaleDateString()}</span></div><button onClick={() => setLeavePicker(null)} aria-label="Close">×</button></div><div className="leave-options"><button onClick={() => { const target = leavePicker; setLeavePicker(null); setStatusPicker(target); }}><b>STS</b><span>Personnel status</span></button>{leaveTypes.length ? leaveTypes.map(type => <button key={type} onClick={() => chooseLeaveType(type)}><b>{leaveCode(type)}</b><span>{type}</span></button>) : <p>No leave types configured.</p>}</div></section></div>; })()}
 
   {statusPicker && (() => { return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setStatusPicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Select personnel status"><div className="picker-head"><div><strong>Select personnel status</strong><span>{statusPicker.person.fullName} · {statusPicker.day.toLocaleDateString()}</span></div><button onClick={() => setStatusPicker(null)} aria-label="Close">×</button></div><div className="leave-options">{PERSONNEL_STATUSES.map(option => <button key={option.code} onClick={() => choosePersonnelStatus(option.code, option.label)}><b>{option.code}</b><span>{option.label}</span></button>)}</div></section></div>; })()}
 
