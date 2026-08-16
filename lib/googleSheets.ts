@@ -22,6 +22,13 @@ export type AttendanceBackupEntry = {
   office: string;
 };
 
+export type RestoredAttendanceRecord = {
+  employee_key: string;
+  attendance_date: string;
+  status: string;
+  leave_type: string | null;
+};
+
 const BACKUP_SHEET = 'ATTENDANCE_BACKUP';
 
 function auth() {
@@ -54,7 +61,6 @@ export async function loadReferenceData() {
     .map(row => {
       const badgeNumber = String(row[ix('BADGE NUMBER')] || '').trim();
       return {
-        // Keep the existing UI contract for now, but use BADGE NUMBER as the permanent employee key.
         recordId: badgeNumber,
         badgeNumber,
         rank: String(row[ix('RANK')] || ''),
@@ -127,8 +133,6 @@ export async function appendAttendanceBackup(entries: AttendanceBackupEntry[]) {
   const camp = String(entries[0].camp || '');
   const office = String(entries[0].office || '');
 
-  // Keep the JSON compact by storing shared transaction metadata once and
-  // representing attendance rows as [badge, date, status, leaveType].
   const payload = {
     v: 1,
     transactionId,
@@ -162,4 +166,89 @@ export async function appendAttendanceBackup(entries: AttendanceBackupEntry[]) {
   });
 
   return { transactionId, savedAt, count: entries.length };
+}
+
+export async function loadAttendanceBackup(options: {
+  camp: string;
+  office: string;
+  weekStart: string;
+  weekEnd: string;
+  transactionId?: string | null;
+}) {
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+  if (!spreadsheetId) throw new Error('GOOGLE_SHEET_ID is not configured.');
+
+  const sheets = google.sheets({ version: 'v4', auth: auth() });
+  const result = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${BACKUP_SHEET}!A2:H`
+  });
+
+  const rows = result.data.values || [];
+  const requestedTransactionId = options.transactionId?.trim();
+
+  // Search newest first. When a transaction ID is supplied, use that exact
+  // snapshot. Otherwise use the newest backup that covers the requested week.
+  const match = [...rows].reverse().find(row => {
+    const transactionId = String(row[0] || '').trim();
+    const camp = String(row[2] || '').trim();
+    const office = String(row[3] || '').trim();
+    const dateFrom = String(row[4] || '').trim();
+    const dateTo = String(row[5] || '').trim();
+
+    if (requestedTransactionId) return transactionId === requestedTransactionId;
+    return camp === options.camp &&
+      office === options.office &&
+      dateFrom <= options.weekStart &&
+      dateTo >= options.weekEnd;
+  });
+
+  if (!match) {
+    throw new Error(requestedTransactionId
+      ? `Backup transaction ${requestedTransactionId} was not found.`
+      : `No Google Sheets backup covers ${options.office} for ${options.weekStart} to ${options.weekEnd}.`);
+  }
+
+  const json = String(match[7] || '');
+  if (!json) throw new Error('The selected backup row has no JSON payload.');
+
+  const payload = JSON.parse(json) as {
+    v?: number;
+    transactionId?: string;
+    savedAt?: string;
+    camp?: string;
+    office?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    entries?: unknown[];
+  };
+
+  if (payload.v !== 1 || !Array.isArray(payload.entries)) {
+    throw new Error('Unsupported or invalid attendance backup format.');
+  }
+
+  const records: RestoredAttendanceRecord[] = [];
+  for (const raw of payload.entries) {
+    if (!Array.isArray(raw) || raw.length < 3) continue;
+    const employeeKey = String(raw[0] ?? '');
+    const attendanceDate = String(raw[1] ?? '');
+    const status = String(raw[2] ?? '');
+    const leaveType = raw[3] == null ? null : String(raw[3]);
+    if (!employeeKey || !attendanceDate || !status) continue;
+    if (attendanceDate < options.weekStart || attendanceDate > options.weekEnd) continue;
+    records.push({
+      employee_key: employeeKey,
+      attendance_date: attendanceDate,
+      status,
+      leave_type: leaveType
+    });
+  }
+
+  return {
+    records,
+    transactionId: String(payload.transactionId || match[0] || ''),
+    savedAt: String(payload.savedAt || match[1] || ''),
+    camp: String(payload.camp || match[2] || ''),
+    office: String(payload.office || match[3] || '')
+  };
 }
