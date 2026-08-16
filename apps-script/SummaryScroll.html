@@ -1,0 +1,40 @@
+<script>
+(function(){
+  function scrollSummaryPersonIntoView(summaryRow){
+    if(!summaryRow) return;
+    const badge=summaryRow.dataset.summary;
+    if(!badge) return;
+    const grid=document.getElementById('gridWrap');
+    if(!grid) return;
+    const people=grid.querySelectorAll('.person-name[data-person]');
+    let person=null;
+    for(const el of people){
+      if(el.dataset.person===badge){ person=el; break; }
+    }
+    if(!person) return;
+    const row=person.closest('tr');
+    if(!row) return;
+
+    const gridRect=grid.getBoundingClientRect();
+    const rowRect=row.getBoundingClientRect();
+    const header=grid.querySelector('thead');
+    const headerHeight=header ? header.getBoundingClientRect().height : 0;
+    const visibleTop=gridRect.top+headerHeight;
+    const visibleBottom=gridRect.bottom;
+
+    // Only move the list when the personnel row is outside the visible grid.
+    if(rowRect.top < visibleTop || rowRect.bottom > visibleBottom){
+      const target=grid.scrollTop+(rowRect.top-visibleTop)-12;
+      grid.scrollTo({top:Math.max(0,target),behavior:'smooth'});
+    }
+  }
+
+  // Delegation keeps working because the summary list is re-rendered often.
+  document.addEventListener('mouseover',function(e){
+    const row=e.target.closest && e.target.closest('.case-row[data-summary]');
+    if(!row) return;
+    if(e.relatedTarget && row.contains(e.relatedTarget)) return;
+    scrollSummaryPersonIntoView(row);
+  });
+})();
+</script>
