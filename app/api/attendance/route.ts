@@ -24,17 +24,21 @@ export async function GET(request: NextRequest) {
     const weekEnd = searchParams.get('weekEnd');
     const camp = searchParams.get('camp');
     const office = searchParams.get('office');
+    const requestedSource = String(searchParams.get('source') || '').trim().toLowerCase();
+    const requestedTransactionId = searchParams.get('transactionId');
+
     if (!weekStart || !weekEnd || !camp || !office) {
       return NextResponse.json({ error: 'Missing weekStart, weekEnd, camp, or office.' }, { status: 400 });
     }
 
-    if (useBackupSource()) {
+    const backupMode = requestedSource === 'backup' || useBackupSource();
+    if (backupMode) {
       const restored = await loadAttendanceBackup({
         weekStart,
         weekEnd,
         camp,
         office,
-        transactionId: process.env.ATTENDANCE_BACKUP_TRANSACTION_ID || null
+        transactionId: requestedTransactionId || process.env.ATTENDANCE_BACKUP_TRANSACTION_ID || null
       });
 
       return NextResponse.json({
