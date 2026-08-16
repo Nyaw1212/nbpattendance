@@ -73,6 +73,7 @@ export default function Home() {
   const [cells, setCells] = useState<Record<string, Cell>>({});
   const [message, setMessage] = useState('Loading reference data...');
   const [busy, setBusy] = useState(false);
+  const [choicePicker, setChoicePicker] = useState<CellPicker>(null);
   const [leavePicker, setLeavePicker] = useState<CellPicker>(null);
   const [statusPicker, setStatusPicker] = useState<CellPicker>(null);
   const [rangePicker, setRangePicker] = useState<RangePicker>(null);
@@ -173,14 +174,10 @@ export default function Home() {
     }
 
     if (current === 'OFF' || current === 'UNRECORDED') {
-      // Third option: do not store an intermediate status. Open the details
-      // chooser so the user can pick a leave type or personnel status.
-      setLeavePicker({ person, day });
+      setChoicePicker({ person, day });
       return;
     }
 
-    // A special leave/status is already assigned. One main-button click returns
-    // the cell to Present; use the visible details button to edit the special case.
     setCells(prev => ({ ...prev, [k]: { status: 'PRESENT' } }));
   }
 
@@ -234,7 +231,9 @@ export default function Home() {
     <footer><span>{message}{pendingRanges.length ? ` · ${pendingRanges.length} range${pendingRanges.length === 1 ? '' : 's'} pending` : ''}</span><button className="primary" onClick={saveWeek} disabled={busy || !office}>Save Week</button></footer>
   </section>
 
-  {leavePicker && (() => { return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setLeavePicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Leave details"><div className="picker-head"><div><strong>Leave details</strong><span>{leavePicker.person.fullName} · {leavePicker.day.toLocaleDateString()}</span></div><button onClick={() => setLeavePicker(null)} aria-label="Close">×</button></div><div className="leave-options"><button onClick={() => { const target = leavePicker; setLeavePicker(null); setStatusPicker(target); }}><b>STS</b><span>Personnel status</span></button>{leaveTypes.length ? leaveTypes.map(type => <button key={type} onClick={() => chooseLeaveType(type)}><b>{leaveCode(type)}</b><span>{type}</span></button>) : <p>No leave types configured.</p>}</div></section></div>; })()}
+  {choicePicker && (() => { const target = choicePicker; return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setChoicePicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Choose attendance option"><div className="picker-head"><div><strong>Choose attendance option</strong><span>{target.person.fullName} · {target.day.toLocaleDateString()}</span></div><button onClick={() => setChoicePicker(null)} aria-label="Close">×</button></div><div className="leave-options"><button onClick={() => { setChoicePicker(null); setLeavePicker(target); }}><b>L</b><span>Leave</span></button><button onClick={() => { setChoicePicker(null); setStatusPicker(target); }}><b>STS</b><span>Personnel Status / Movement</span></button></div></section></div>; })()}
+
+  {leavePicker && (() => { return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setLeavePicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Leave details"><div className="picker-head"><div><strong>Leave details</strong><span>{leavePicker.person.fullName} · {leavePicker.day.toLocaleDateString()}</span></div><button onClick={() => setLeavePicker(null)} aria-label="Close">×</button></div><div className="leave-options">{leaveTypes.length ? leaveTypes.map(type => <button key={type} onClick={() => chooseLeaveType(type)}><b>{leaveCode(type)}</b><span>{type}</span></button>) : <p>No leave types configured.</p>}</div></section></div>; })()}
 
   {statusPicker && (() => { return <div className="picker-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setStatusPicker(null); }}><section className="leave-picker" role="dialog" aria-modal="true" aria-label="Select personnel status"><div className="picker-head"><div><strong>Select personnel status</strong><span>{statusPicker.person.fullName} · {statusPicker.day.toLocaleDateString()}</span></div><button onClick={() => setStatusPicker(null)} aria-label="Close">×</button></div><div className="leave-options">{PERSONNEL_STATUSES.map(option => <button key={option.code} onClick={() => choosePersonnelStatus(option.code, option.label)}><b>{option.code}</b><span>{option.label}</span></button>)}</div></section></div>; })()}
 
