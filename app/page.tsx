@@ -32,7 +32,6 @@ type DurationUnit = 'days' | 'weeks' | 'months';
 type PersonnelStatusOption = { code: Status; label: string };
 type HoverRange = { employeeKey: string; status: Status; leaveType?: string; startDate: string; endDate: string } | null;
 
-const STATUS_ORDER: Status[] = ['PRESENT', 'OFF', 'LEAVE', 'OB', 'ABSENT', 'UNRECORDED'];
 const LABEL: Record<Status, string> = {
   PRESENT: 'P', OFF: 'O', LEAVE: 'L', OB: 'OB', ABSENT: 'A', UNRECORDED: '—',
   ACT: 'ACT', TRN: 'TRN', UI: 'UI', AWOL: 'AWOL', AWA: 'AWA', SUS: 'SUS', DET: 'DET', DEC: 'DEC', DIS: 'DIS', RET: 'RET',
@@ -162,7 +161,28 @@ export default function Home() {
     window.setTimeout(() => setRangePicker(assignment), 0);
   }
 
-  function cycleCell(person: Personnel, day: Date) { setActiveDay(iso(day)); const k = key(person.badgeNumber, iso(day)); const current = cells[k]?.status || 'UNRECORDED'; const currentIndex = STATUS_ORDER.indexOf(current); const next = STATUS_ORDER[(currentIndex < 0 ? 0 : currentIndex + 1) % STATUS_ORDER.length]; setCells(prev => ({ ...prev, [k]: { status: next, leaveType: next === 'LEAVE' ? prev[k]?.leaveType : undefined } })); }
+  function cycleCell(person: Personnel, day: Date) {
+    const dayIso = iso(day);
+    setActiveDay(dayIso);
+    const k = key(person.badgeNumber, dayIso);
+    const current = cells[k]?.status || 'UNRECORDED';
+
+    if (current === 'PRESENT') {
+      setCells(prev => ({ ...prev, [k]: { status: 'OFF' } }));
+      return;
+    }
+
+    if (current === 'OFF' || current === 'UNRECORDED') {
+      // Third option: do not store an intermediate status. Open the details
+      // chooser so the user can pick a leave type or personnel status.
+      setLeavePicker({ person, day });
+      return;
+    }
+
+    // A special leave/status is already assigned. One main-button click returns
+    // the cell to Present; use the visible details button to edit the special case.
+    setCells(prev => ({ ...prev, [k]: { status: 'PRESENT' } }));
+  }
 
   function chooseLeaveType(leaveType: string) {
     if (!leavePicker) return;
@@ -207,7 +227,7 @@ export default function Home() {
 
     <section className="daily-focus"><div className="abnormal-panel"><div className="abnormal-head"><div><span>SUMMARY OF PERSONNEL STATUSES / MOVEMENT</span><strong>{activeDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong></div><div className="case-count">{abnormalCases.length}</div></div><div className="case-chips"><span>Leave <b>{abnormalCounts.LEAVE}</b></span><span>OB <b>{abnormalCounts.OB}</b></span><span>Absent <b>{abnormalCounts.ABSENT}</b></span><span>Unrecorded <b>{abnormalCounts.UNRECORDED}</b></span></div><div className="case-list">{abnormalCases.length === 0 ? <div className="no-cases">No personnel statuses or movements to show for this day.</div> : abnormalCases.map(({ person, cell }) => { const range = getCaseRange(person.badgeNumber, cell); const highlighted = sameHover(person.badgeNumber, cell); return <div className="case-row" key={person.badgeNumber} onMouseEnter={() => hoverFor(person.badgeNumber, cell, activeDay)} onMouseLeave={() => setHoverRange(null)} style={highlighted ? { background: '#e7f5eb', boxShadow: 'inset 0 0 0 2px #77b88a', transition: 'background .12s ease, box-shadow .12s ease' } : { transition: 'background .12s ease, box-shadow .12s ease' }}><div><b>{person.fullName}</b><small>{person.rank} · Badge {person.badgeNumber}</small><small style={{ marginTop: 4, fontWeight: 800, color: '#4f6b57' }}>{shortDate(range.startDate)} → {shortDate(range.endDate)} · {range.days} day{range.days === 1 ? '' : 's'}</small></div><span className={`case-status case-${cell.status.toLowerCase()}`} title={cell.leaveType || cell.status}>{caseLabel(cell)}</span></div>; })}</div></div></section>
 
-    <div className="toolbar"><button onClick={() => moveWeek(-7)}>‹ Previous</button><strong>{week[0].toLocaleDateString()} – {week[6].toLocaleDateString()}</strong><button onClick={() => moveWeek(7)}>Next ›</button><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search personnel..." /><span className="hint">P → O → L → OB → A → — · ⋯ = details / status</span><button onClick={clearWeek}>Clear Week</button></div>
+    <div className="toolbar"><button onClick={() => moveWeek(-7)}>‹ Previous</button><strong>{week[0].toLocaleDateString()} – {week[6].toLocaleDateString()}</strong><button onClick={() => moveWeek(7)}>Next ›</button><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search personnel..." /><span className="hint">P → O → choose Leave / Status · ⋯ = edit details</span><button onClick={clearWeek}>Clear Week</button></div>
 
     <div className="grid-wrap">{!office ? <div className="empty">Select a camp and office.</div> : <table className="attendance-grid"><thead><tr><th>Personnel</th>{week.map(d => <th key={iso(d)} className={iso(d) === activeDay ? 'active-day-column' : ''}><button className="day-head-button" onClick={() => setActiveDay(iso(d))}><span>{d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span><small>{d.getMonth() + 1}/{d.getDate()}</small></button></th>)}</tr></thead><tbody>{roster.map(p => { const rowHighlighted = hoverRange?.employeeKey === p.badgeNumber; return <tr key={p.badgeNumber}><td onMouseEnter={() => hoverFromPersonnel(p.badgeNumber)} onMouseLeave={() => setHoverRange(null)} style={rowHighlighted ? { background: '#eef8f1', boxShadow: 'inset 3px 0 0 #4f9a64', cursor: 'default' } : { cursor: 'default' }}><b>{p.fullName}</b><small>{p.rank} · Badge {p.badgeNumber || '—'}</small></td>{week.map(day => { const dayIso = iso(day); const c = cells[key(p.badgeNumber, dayIso)] || { status: 'UNRECORDED' as Status }; const display = c.status === 'LEAVE' ? leaveCode(c.leaveType) : (LABEL[c.status] || c.status); const hasDetails = c.status !== 'PRESENT' && c.status !== 'OFF'; const inHoverRange = !!hoverRange && hoverRange.employeeKey === p.badgeNumber && dayIso >= hoverRange.startDate && dayIso <= hoverRange.endDate && hoverRange.status === c.status && (hoverRange.leaveType || '') === (c.leaveType || ''); return <td key={dayIso} className={dayIso === activeDay ? 'active-day-cell' : ''} style={inHoverRange ? { background: '#e7f5eb' } : undefined}><div className="status-cell" onMouseEnter={() => { if (hasDetails) hoverFor(p.badgeNumber, c, dayIso); }} onMouseLeave={() => { if (hasDetails) setHoverRange(null); }}><button className={`status status-${c.status.toLowerCase()} ${display.length > 2 ? 'status-wide' : ''}`} onClick={() => cycleCell(p, day)} style={inHoverRange ? { outline: '2px solid #4f9a64', outlineOffset: '2px', transform: 'translateY(-1px)' } : undefined}>{display}</button>{hasDetails && <button className="details-trigger" title="Details / personnel status" aria-label={`Details for ${p.fullName}`} onClick={() => { setActiveDay(dayIso); if (c.status === 'LEAVE') setLeavePicker({ person: p, day }); else setStatusPicker({ person: p, day }); }}>⋯</button>}</div></td>; })}</tr>; })}</tbody></table>}</div>
 
