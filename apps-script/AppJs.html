@@ -1,0 +1,104 @@
+<script>
+  const state = { personnel: [], offices: [], leaveTypes: [], camp: '', office: '', resolvedUnit: null };
+
+  const $ = id => document.getElementById(id);
+  const todayIso = () => {
+    const d = new Date();
+    return [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-');
+  };
+
+  function setStatus(message) { $('status').textContent = message; }
+
+  function unique(values) { return [...new Set(values.filter(Boolean))]; }
+
+  function fillSelect(select, items, placeholder) {
+    select.innerHTML = '';
+    const first = document.createElement('option');
+    first.value = '';
+    first.textContent = placeholder;
+    select.appendChild(first);
+    items.forEach(item => {
+      const option = document.createElement('option');
+      option.value = item;
+      option.textContent = item;
+      select.appendChild(option);
+    });
+  }
+
+  function refreshOfficeOptions() {
+    const offices = state.offices
+      .filter(item => item.camp === state.camp)
+      .sort((a,b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+      .map(item => item.office);
+    fillSelect($('office'), offices, 'Select office');
+    if (state.office && offices.includes(state.office)) $('office').value = state.office;
+  }
+
+  function renderRoster() {
+    const roster = state.personnel
+      .filter(person => person.camp === state.camp && person.office === state.office)
+      .sort((a,b) => a.fullName.localeCompare(b.fullName));
+    $('personnelCount').textContent = roster.length;
+    $('leaveCount').textContent = state.leaveTypes.length;
+    $('selectedOffice').textContent = state.office || 'Select an office';
+    $('rosterMeta').textContent = roster.length ? `${state.camp} · ${state.office}` : '';
+    const host = $('roster');
+    host.innerHTML = '';
+    if (!roster.length) {
+      host.innerHTML = '<div class="empty">No personnel to show.</div>';
+      return;
+    }
+    roster.forEach(person => {
+      const row = document.createElement('div');
+      row.className = 'person-row';
+      row.innerHTML = `<div><b>${escapeHtml(person.fullName)}</b><br><small>${escapeHtml(person.rank || '')}</small></div><small>Badge ${escapeHtml(person.badgeNumber)}</small>`;
+      host.appendChild(row);
+    });
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  }
+
+  function bootstrapSuccess(data) {
+    state.personnel = data.personnel || [];
+    state.offices = data.offices || [];
+    state.leaveTypes = data.leaveTypes || [];
+    state.resolvedUnit = data.resolvedUnit || null;
+    const camps = unique(state.offices.map(item => item.camp));
+    fillSelect($('camp'), camps, 'Select camp');
+
+    if (state.resolvedUnit) {
+      state.camp = state.resolvedUnit.camp;
+      state.office = state.resolvedUnit.office;
+    } else if (state.offices[0]) {
+      state.camp = state.offices[0].camp;
+      state.office = state.offices[0].office;
+    }
+
+    $('camp').value = state.camp;
+    refreshOfficeOptions();
+    $('office').value = state.office;
+    renderRoster();
+    setStatus(`${state.personnel.length} personnel loaded directly from Google Sheets.`);
+  }
+
+  function bootstrapFailure(error) {
+    setStatus(error && error.message ? error.message : String(error));
+  }
+
+  $('camp').addEventListener('change', event => {
+    state.camp = event.target.value;
+    state.office = '';
+    refreshOfficeOptions();
+    renderRoster();
+  });
+  $('office').addEventListener('change', event => { state.office = event.target.value; renderRoster(); });
+  $('load').addEventListener('click', renderRoster);
+  $('date').value = todayIso();
+
+  google.script.run
+    .withSuccessHandler(bootstrapSuccess)
+    .withFailureHandler(bootstrapFailure)
+    .getBootstrapData(window.INITIAL_UNIT_KEY || '');
+</script>
