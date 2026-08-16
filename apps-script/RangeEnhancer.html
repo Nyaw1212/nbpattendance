@@ -2,6 +2,7 @@
 (function(){
   let dragging = false;
   let dragStart = '';
+  let dragCurrent = '';
   let dragMoved = false;
   let suppressClick = false;
 
@@ -9,68 +10,84 @@
     return target && target.closest ? target.closest('[data-cal-day]') : null;
   }
 
-  function setInputValue(id, value){
-    const el = document.getElementById(id);
-    if(!el) return;
-    el.value = value;
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+  function dayAtPoint(x, y){
+    const el = document.elementFromPoint(x, y);
+    return dayButton(el);
   }
 
-  document.addEventListener('pointerdown', function(e){
-    const btn = dayButton(e.target);
-    if(!btn) return;
-    e.preventDefault();
-    dragging = true;
-    dragMoved = false;
-    dragStart = btn.dataset.calDay || '';
-    if(!dragStart) return;
-    try { btn.setPointerCapture && btn.setPointerCapture(e.pointerId); } catch(_) {}
-  }, true);
-
-  document.addEventListener('pointerover', function(e){
-    if(!dragging || !dragStart) return;
-    const btn = dayButton(e.target);
-    if(!btn) return;
-    const d = btn.dataset.calDay || '';
-    if(!d || d === dragStart) return;
-    dragMoved = true;
-
-    const start = d < dragStart ? d : dragStart;
-    const end = d < dragStart ? dragStart : d;
+  function applyRange(a, b){
+    if(!a || !b) return;
+    const start = b < a ? b : a;
+    const end = b < a ? a : b;
     const s = document.getElementById('rangeStart');
     const en = document.getElementById('rangeEnd');
     if(!s || !en) return;
 
-    s.value = start;
-    en.value = end;
-    s.dispatchEvent(new Event('change', { bubbles: true }));
-    en.dispatchEvent(new Event('change', { bubbles: true }));
+    // Change the start first, then the end. AppJs keeps the inline
+    // calendar, summary and duration controls synchronized from these.
+    if(s.value !== start){
+      s.value = start;
+      s.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if(en.value !== end){
+      en.value = end;
+      en.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
+  document.addEventListener('pointerdown', function(e){
+    const btn = dayButton(e.target);
+    if(!btn || e.button !== 0) return;
+
+    e.preventDefault();
+    dragging = true;
+    dragMoved = false;
+    dragStart = btn.dataset.calDay || '';
+    dragCurrent = dragStart;
   }, true);
 
-  document.addEventListener('pointerup', function(e){
+  document.addEventListener('pointermove', function(e){
+    if(!dragging || !dragStart) return;
+
+    const btn = dayAtPoint(e.clientX, e.clientY);
+    if(!btn) return;
+
+    const d = btn.dataset.calDay || '';
+    if(!d || d === dragCurrent) return;
+
+    dragCurrent = d;
+    if(d !== dragStart) dragMoved = true;
+
+    if(dragMoved){
+      e.preventDefault();
+      applyRange(dragStart, d);
+    }
+  }, true);
+
+  function finishDrag(e){
     if(!dragging) return;
-    const btn = dayButton(e.target);
-    const endDay = btn && btn.dataset.calDay ? btn.dataset.calDay : dragStart;
+
+    const btn = dayAtPoint(e.clientX, e.clientY);
+    const endDay = btn && btn.dataset.calDay ? btn.dataset.calDay : dragCurrent || dragStart;
 
     if(dragMoved && dragStart && endDay){
-      const start = endDay < dragStart ? endDay : dragStart;
-      const end = endDay < dragStart ? dragStart : endDay;
-      const s = document.getElementById('rangeStart');
-      const en = document.getElementById('rangeEnd');
-      if(s && en){
-        s.value = start;
-        en.value = end;
-        s.dispatchEvent(new Event('change', { bubbles: true }));
-        en.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      e.preventDefault();
+      applyRange(dragStart, endDay);
+
+      // Prevent the ordinary calendar click handler from immediately
+      // treating the pointer release as another click-range selection.
       suppressClick = true;
-      setTimeout(function(){ suppressClick = false; }, 0);
+      setTimeout(function(){ suppressClick = false; }, 50);
     }
 
     dragging = false;
     dragStart = '';
+    dragCurrent = '';
     dragMoved = false;
-  }, true);
+  }
+
+  document.addEventListener('pointerup', finishDrag, true);
+  document.addEventListener('pointercancel', finishDrag, true);
 
   document.addEventListener('click', function(e){
     if(!suppressClick) return;
