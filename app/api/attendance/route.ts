@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { appendAttendanceBackup } from '@/lib/googleSheets';
+import { appendAttendanceBackup, loadAttendanceBackup } from '@/lib/googleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +13,10 @@ type AttendanceEntry = {
   office: string;
 };
 
+function useBackupSource() {
+  return String(process.env.ATTENDANCE_SOURCE || '').trim().toLowerCase() === 'backup';
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -23,6 +27,24 @@ export async function GET(request: NextRequest) {
     if (!weekStart || !weekEnd || !camp || !office) {
       return NextResponse.json({ error: 'Missing weekStart, weekEnd, camp, or office.' }, { status: 400 });
     }
+
+    if (useBackupSource()) {
+      const restored = await loadAttendanceBackup({
+        weekStart,
+        weekEnd,
+        camp,
+        office,
+        transactionId: process.env.ATTENDANCE_BACKUP_TRANSACTION_ID || null
+      });
+
+      return NextResponse.json({
+        records: restored.records,
+        source: 'google-sheets-backup',
+        transactionId: restored.transactionId,
+        backupSavedAt: restored.savedAt
+      });
+    }
+
     const sql = db();
     const rows = await sql`
       SELECT employee_key, attendance_date::text, status, leave_type
@@ -32,7 +54,7 @@ export async function GET(request: NextRequest) {
         AND office_at_time = ${office}
       ORDER BY employee_key, attendance_date
     `;
-    return NextResponse.json({ records: rows });
+    return NextResponse.json({ records: rows, source: 'neon' });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to load attendance.' }, { status: 500 });
   }
@@ -40,6 +62,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    if (useBackupSource()) {
+      return NextResponse.json({
+        error: 'Attendance is currently in Google Sheets backup test mode. Saving is disabled so the backup test cannot modify Neon.'
+      }, { status: 409 });
+    }
+
     const body = await request.json();
     const entries = Array.isArray(body.entries) ? body.entries as AttendanceEntry[] : [];
     if (!entries.length) return NextResponse.json({ error: 'No attendance entries supplied.' }, { status: 400 });
@@ -87,8 +115,6 @@ export async function POST(request: NextRequest) {
                     updated_at = NOW()
     `;
 
-    // Neon is the system of record. After the database save succeeds, write one
-    // compact transaction snapshot to Google Sheets as a secondary backup.
     let backup: { ok: boolean; transactionId?: string; warning?: string } = { ok: false };
     try {
       const result = await appendAttendanceBackup(rows.map(row => ({
