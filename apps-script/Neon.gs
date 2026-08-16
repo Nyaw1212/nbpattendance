@@ -77,10 +77,15 @@ function saveNeonAttendance_(entries, camp, office) {
   }
 }
 
-function loadNeonAttendance_(camp, office, weekStart, weekEnd) {
+function loadNeonAttendance_(camp, office, weekStart, weekEnd, perf) {
   let conn, stmt, rs;
+  const started = Date.now();
   try {
+    const connectStarted = Date.now();
     conn = getNeonConnection_();
+    if (perf) perf.neonConnectMs = Date.now() - connectStarted;
+
+    const prepareStarted = Date.now();
     stmt = conn.prepareStatement([
       'SELECT employee_key, attendance_date::text, status, leave_type',
       'FROM nbp_attendance.attendance',
@@ -93,8 +98,13 @@ function loadNeonAttendance_(camp, office, weekStart, weekEnd) {
     stmt.setString(2, String(weekEnd));
     stmt.setString(3, String(camp));
     stmt.setString(4, String(office));
-    rs = stmt.executeQuery();
+    if (perf) perf.neonPrepareMs = Date.now() - prepareStarted;
 
+    const queryStarted = Date.now();
+    rs = stmt.executeQuery();
+    if (perf) perf.neonQueryMs = Date.now() - queryStarted;
+
+    const readStarted = Date.now();
     const records = [];
     while (rs.next()) {
       records.push({
@@ -104,6 +114,10 @@ function loadNeonAttendance_(camp, office, weekStart, weekEnd) {
         leave_type: rs.getString(4)
       });
     }
+    if (perf) {
+      perf.neonReadMs = Date.now() - readStarted;
+      perf.neonTotalMs = Date.now() - started;
+    }
     return records;
   } finally {
     if (rs) rs.close();
@@ -112,27 +126,5 @@ function loadNeonAttendance_(camp, office, weekStart, weekEnd) {
   }
 }
 
-// Public Apps Script function called by the web app.
-function loadAttendanceWeek(payload) {
-  if (!payload || !payload.camp || !payload.office || !payload.weekStart || !payload.weekEnd) {
-    throw new Error('Camp, office, weekStart, and weekEnd are required.');
-  }
-
-  const records = loadNeonAttendance_(
-    String(payload.camp),
-    String(payload.office),
-    String(payload.weekStart),
-    String(payload.weekEnd)
-  );
-
-  return {
-    ok: true,
-    source: 'neon',
-    records: records,
-    count: records.length,
-    camp: String(payload.camp),
-    office: String(payload.office),
-    weekStart: String(payload.weekStart),
-    weekEnd: String(payload.weekEnd)
-  };
-}
+// IMPORTANT: loadAttendanceWeek(payload) lives in Attendance.gs.
+// Keep a single public loader so cache/sheet fallback cannot be bypassed.
