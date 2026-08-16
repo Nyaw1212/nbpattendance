@@ -1,12 +1,138 @@
+const REFERENCE_CACHE_SECONDS_ = 3600;
+const REFERENCE_CACHE_PREFIX_ = 'reference:v1:';
+const REFERENCE_PERSONNEL_CHUNK_SIZE_ = 250;
+
 function getSpreadsheet_() {
   const id = PropertiesService.getScriptProperties().getProperty('GOOGLE_SHEET_ID');
   if (!id) throw new Error('Set GOOGLE_SHEET_ID in Apps Script Script Properties.');
   return SpreadsheetApp.openById(id);
 }
 
+function getReferenceCache_() {
+  return CacheService.getScriptCache();
+}
+
+function clearReferenceDataCache() {
+  const cache = getReferenceCache_();
+  const manifestText = cache.get(REFERENCE_CACHE_PREFIX_ + 'manifest');
+  if (manifestText) {
+    try {
+      const manifest = JSON.parse(manifestText);
+      const keys = [
+        REFERENCE_CACHE_PREFIX_ + 'manifest',
+        REFERENCE_CACHE_PREFIX_ + 'offices',
+        REFERENCE_CACHE_PREFIX_ + 'leaveTypes'
+      ];
+      for (let i = 0; i < Number(manifest.personnelChunks || 0); i++) {
+        keys.push(REFERENCE_CACHE_PREFIX_ + 'personnel:' + i);
+      }
+      cache.removeAll(keys);
+    } catch (ignore) {
+      cache.remove(REFERENCE_CACHE_PREFIX_ + 'manifest');
+    }
+  } else {
+    cache.remove(REFERENCE_CACHE_PREFIX_ + 'manifest');
+  }
+  console.log('Reference cache cleared.');
+  return true;
+}
+
+function readReferenceDataCache_(perf) {
+  const cache = getReferenceCache_();
+  const started = Date.now();
+  const manifestText = cache.get(REFERENCE_CACHE_PREFIX_ + 'manifest');
+  perf.referenceCacheLookupMs = Date.now() - started;
+  if (!manifestText) {
+    perf.referenceCacheHit = false;
+    return null;
+  }
+
+  try {
+    const manifest = JSON.parse(manifestText);
+    const keys = [REFERENCE_CACHE_PREFIX_ + 'offices', REFERENCE_CACHE_PREFIX_ + 'leaveTypes'];
+    for (let i = 0; i < manifest.personnelChunks; i++) {
+      keys.push(REFERENCE_CACHE_PREFIX_ + 'personnel:' + i);
+    }
+
+    const values = cache.getAll(keys);
+    if (!values[REFERENCE_CACHE_PREFIX_ + 'offices'] || !values[REFERENCE_CACHE_PREFIX_ + 'leaveTypes']) {
+      perf.referenceCacheHit = false;
+      return null;
+    }
+
+    const personnel = [];
+    for (let i = 0; i < manifest.personnelChunks; i++) {
+      const k = REFERENCE_CACHE_PREFIX_ + 'personnel:' + i;
+      if (!values[k]) {
+        perf.referenceCacheHit = false;
+        return null;
+      }
+      Array.prototype.push.apply(personnel, JSON.parse(values[k]));
+    }
+
+    const offices = JSON.parse(values[REFERENCE_CACHE_PREFIX_ + 'offices']);
+    const leaveTypes = JSON.parse(values[REFERENCE_CACHE_PREFIX_ + 'leaveTypes']);
+    perf.referenceCacheHit = true;
+    perf.referenceCacheReadMs = Date.now() - started;
+    perf.personnelCount = personnel.length;
+    perf.officeCount = offices.length;
+    perf.leaveTypeCount = leaveTypes.length;
+    console.log('Reference cache hit: personnel=' + personnel.length + ', offices=' + offices.length + ', leaveTypes=' + leaveTypes.length);
+    return { personnel: personnel, offices: offices, leaveTypes: leaveTypes };
+  } catch (err) {
+    perf.referenceCacheHit = false;
+    console.log('Reference cache read failed: ' + err.message);
+    return null;
+  }
+}
+
+function writeReferenceDataCache_(data, perf) {
+  const cache = getReferenceCache_();
+  const started = Date.now();
+  try {
+    const chunks = [];
+    for (let i = 0; i < data.personnel.length; i += REFERENCE_PERSONNEL_CHUNK_SIZE_) {
+      chunks.push(data.personnel.slice(i, i + REFERENCE_PERSONNEL_CHUNK_SIZE_));
+    }
+
+    const values = {};
+    values[REFERENCE_CACHE_PREFIX_ + 'offices'] = JSON.stringify(data.offices);
+    values[REFERENCE_CACHE_PREFIX_ + 'leaveTypes'] = JSON.stringify(data.leaveTypes);
+    chunks.forEach(function(chunk, i) {
+      values[REFERENCE_CACHE_PREFIX_ + 'personnel:' + i] = JSON.stringify(chunk);
+    });
+
+    cache.putAll(values, REFERENCE_CACHE_SECONDS_);
+    cache.put(REFERENCE_CACHE_PREFIX_ + 'manifest', JSON.stringify({
+      v: 1,
+      personnelChunks: chunks.length,
+      personnelCount: data.personnel.length,
+      createdAt: new Date().toISOString()
+    }), REFERENCE_CACHE_SECONDS_);
+
+    perf.referenceCacheWriteMs = Date.now() - started;
+    perf.referenceCacheChunks = chunks.length;
+    console.log('Reference cache write: chunks=' + chunks.length + ', ms=' + perf.referenceCacheWriteMs);
+    return true;
+  } catch (err) {
+    perf.referenceCacheWriteMs = Date.now() - started;
+    console.log('Reference cache write skipped: ' + err.message);
+    return false;
+  }
+}
+
 function getReferenceData_(perf) {
   perf = perf || {};
   const totalStarted = Date.now();
+
+  const cached = readReferenceDataCache_(perf);
+  if (cached) {
+    perf.referenceSource = 'cache';
+    perf.referenceTotalMs = Date.now() - totalStarted;
+    return cached;
+  }
+
+  perf.referenceSource = 'sheets';
   let t = Date.now();
 
   const ss = getSpreadsheet_();
@@ -76,8 +202,10 @@ function getReferenceData_(perf) {
   perf.leaveBuildMs = Date.now() - t;
   perf.leaveTypeCount = leaveTypes.length;
 
+  const data = { personnel: personnel, offices: offices, leaveTypes: leaveTypes };
+  writeReferenceDataCache_(data, perf);
   perf.referenceTotalMs = Date.now() - totalStarted;
-  return { personnel: personnel, offices: offices, leaveTypes: leaveTypes };
+  return data;
 }
 
 function resolveUnit_(unitKey, offices) {
