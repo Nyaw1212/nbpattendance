@@ -1,13 +1,5 @@
 const APP_TITLE = 'NBP Attendance Center';
 
-const UNIT_ALIASES_ = {
-  'nbp-court-subpoena': {
-    camp: 'NBP',
-    office: 'COURT AND SUBPOENA OFFICE',
-    unitKey: 'nbp-court-subpoena'
-  }
-};
-
 function doGet(e) {
   const template = HtmlService.createTemplateFromFile('Index');
   template.appTitle = APP_TITLE;
@@ -23,19 +15,7 @@ function include(filename) {
 }
 
 function resolveRequestedUnit_(unitKey, offices) {
-  const key = String(unitKey || '').trim().toLowerCase();
-  if (!key) return null;
-
-  const alias = UNIT_ALIASES_[key];
-  if (alias) {
-    const exact = (offices || []).find(function(item) {
-      return String(item.camp || '').trim() === alias.camp &&
-             String(item.office || '').trim() === alias.office;
-    });
-    return exact || alias;
-  }
-
-  return resolveUnit_(key, offices);
+  return resolveUnit_(unitKey, offices);
 }
 
 function getBootstrapData(unitKey) {
@@ -50,6 +30,10 @@ function getBootstrapData(unitKey) {
   let personnel = data.personnel;
   let offices = data.offices;
 
+  if (unitKey && !resolvedUnit) {
+    throw new Error('This office link is invalid or no longer active.');
+  }
+
   if (resolvedUnit) {
     t = Date.now();
     personnel = data.personnel.filter(function(person) {
@@ -57,12 +41,7 @@ function getBootstrapData(unitKey) {
              String(person.office || '').trim() === String(resolvedUnit.office || '').trim();
     });
 
-    offices = data.offices.filter(function(item) {
-      return String(item.camp || '').trim() === String(resolvedUnit.camp || '').trim() &&
-             String(item.office || '').trim() === String(resolvedUnit.office || '').trim();
-    });
-
-    if (!offices.length) offices = [resolvedUnit];
+    offices = [resolvedUnit];
     perf.unitFilterMs = Date.now() - t;
     perf.unitPersonnelCount = personnel.length;
     perf.unitOfficeCount = offices.length;
@@ -90,9 +69,9 @@ function profileBootstrapData() {
   return result.performance;
 }
 
-function profileCourtSubpoenaBootstrap() {
-  const result = getBootstrapData('nbp-court-subpoena');
-  console.log('COURT/SUBPOENA BOOTSTRAP PROFILE');
+function profileUnitBootstrap(unitKey) {
+  const result = getBootstrapData(unitKey);
+  console.log('UNIT BOOTSTRAP PROFILE: ' + unitKey);
   console.log(JSON.stringify(result.performance, null, 2));
   return result.performance;
 }
