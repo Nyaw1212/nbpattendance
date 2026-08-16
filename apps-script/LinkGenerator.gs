@@ -10,8 +10,8 @@ const OFFICE_MONITOR_HEADERS_ = [
   '2200H'
 ];
 
-function officeUnitKey_(camp, office) {
-  const raw = (String(camp || '') + '-' + String(office || ''))
+function normalizeOfficeSlug_(value) {
+  return String(value || '')
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -19,7 +19,14 @@ function officeUnitKey_(camp, office) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .replace(/-+/g, '-');
-  return raw || Utilities.getUuid().slice(0, 8);
+}
+
+function officeUnitKey_(camp, office, sortOrder) {
+  const campSlug = normalizeOfficeSlug_(camp) || 'unit';
+  const officeSlug = normalizeOfficeSlug_(office) || 'office';
+  const sort = String(Math.max(0, Number(sortOrder) || 0)).padStart(3, '0');
+  const random = Utilities.getUuid().replace(/-/g, '').slice(0, 8).toLowerCase();
+  return [campSlug, sort, officeSlug, random].join('-');
 }
 
 function getOfficeDirectorySheet_() {
@@ -28,40 +35,30 @@ function getOfficeDirectorySheet_() {
   return sheet;
 }
 
-function ensureOfficeLinkColumns_(sheet) {
-  const width = Math.max(sheet.getLastColumn(), 6);
-  const headers = sheet.getRange(1, 1, 1, width).getDisplayValues()[0].map(function(v) {
-    return String(v || '').trim();
-  });
-
-  let unitKeyCol = headers.indexOf('UNIT KEY') + 1;
-  if (!unitKeyCol) unitKeyCol = 5;
-
-  let webLinkCol = headers.indexOf('WEB LINK') + 1;
-  if (!webLinkCol) {
-    webLinkCol = Math.max(width, unitKeyCol + 1);
-    sheet.getRange(1, webLinkCol).setValue('WEB LINK');
-  }
-
-  if (!headers[unitKeyCol - 1]) sheet.getRange(1, unitKeyCol).setValue('UNIT KEY');
-  return { unitKeyCol: unitKeyCol, webLinkCol: webLinkCol };
-}
-
-function ensureOfficeMonitorColumns_(sheet) {
+function ensureNamedColumn_(sheet, header) {
   const lastColumn = Math.max(sheet.getLastColumn(), 1);
   const headers = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0].map(function(v) {
     return String(v || '').trim();
   });
+  let col = headers.indexOf(header) + 1;
+  if (!col) {
+    col = sheet.getLastColumn() + 1;
+    sheet.getRange(1, col).setValue(header);
+  }
+  return col;
+}
 
+function ensureOfficeLinkColumns_(sheet) {
+  return {
+    unitKeyCol: ensureNamedColumn_(sheet, 'UNIT KEY'),
+    webLinkCol: ensureNamedColumn_(sheet, 'WEB LINK')
+  };
+}
+
+function ensureOfficeMonitorColumns_(sheet) {
   const cols = {};
   OFFICE_MONITOR_HEADERS_.forEach(function(header) {
-    let col = headers.indexOf(header) + 1;
-    if (!col) {
-      col = sheet.getLastColumn() + 1;
-      sheet.getRange(1, col).setValue(header);
-      headers[col - 1] = header;
-    }
-    cols[header] = col;
+    cols[header] = ensureNamedColumn_(sheet, header);
   });
   return cols;
 }
@@ -103,8 +100,6 @@ function markOfficeAttendanceUpdated_(camp, office, savedAt) {
   const displayDateTime = Utilities.formatDate(now, OFFICE_MONITOR_TIMEZONE_, 'yyyy-MM-dd HH:mm:ss');
   const shift = attendanceShiftForDate_(now);
 
-  // If the previous save belongs to another local date, clear yesterday's
-  // per-shift indicators before recording today's first submission.
   const previousLastUpdated = String(sheet.getRange(row, cols['LAST UPDATED']).getDisplayValue() || '').trim();
   if (previousLastUpdated && previousLastUpdated !== today) {
     sheet.getRange(row, cols['0600H']).clearContent();
@@ -119,13 +114,7 @@ function markOfficeAttendanceUpdated_(camp, office, savedAt) {
   sheet.getRange(row, cols[shift]).setValue(time);
 
   console.log('Office update monitor: ' + camp + ' | ' + office + ' | ' + displayDateTime + ' | ' + shift);
-  return {
-    row: row,
-    updatedToday: true,
-    date: today,
-    time: time,
-    shift: shift
-  };
+  return { row: row, updatedToday: true, date: today, time: time, shift: shift };
 }
 
 function refreshOfficeUpdatedTodayFlags() {
@@ -149,7 +138,7 @@ function getDeployedWebAppUrl_() {
   if (!url) {
     throw new Error('This Apps Script project has not been deployed as a Web App yet. Deploy it first, then run the link generator again.');
   }
-  return url;
+  return String(url).replace(/\/dev(?:\?.*)?$/, '/exec');
 }
 
 function generateSelectedOfficeLink() {
@@ -182,14 +171,15 @@ function generateAllOfficeLinks() {
 function generateOfficeLinkForRow_(sheet, row) {
   const cols = ensureOfficeLinkColumns_(sheet);
   ensureOfficeMonitorColumns_(sheet);
+
   const camp = String(sheet.getRange(row, 1).getDisplayValue() || '').trim();
   const office = String(sheet.getRange(row, 2).getDisplayValue() || '').trim();
-
+  const sortOrder = Number(sheet.getRange(row, 4).getDisplayValue() || 0);
   if (!camp || !office) throw new Error('CAMP and OFFICE are required on row ' + row + '.');
 
   let unitKey = String(sheet.getRange(row, cols.unitKeyCol).getDisplayValue() || '').trim();
-  if (!unitKey) {
-    unitKey = officeUnitKey_(camp, office);
+  if (!unitKey || /^(yes|no)$/i.test(unitKey)) {
+    unitKey = officeUnitKey_(camp, office, sortOrder);
     sheet.getRange(row, cols.unitKeyCol).setValue(unitKey);
   }
 
@@ -200,6 +190,6 @@ function generateOfficeLinkForRow_(sheet, row) {
   clearReferenceDataCache();
   SpreadsheetApp.flush();
 
-  console.log('Office link generated: ' + camp + ' | ' + office + ' | ' + url);
-  return { row: row, camp: camp, office: office, unitKey: unitKey, url: url };
+  console.log('Office link generated: ' + camp + ' | sort=' + sortOrder + ' | ' + office + ' | ' + url);
+  return { row: row, camp: camp, office: office, sortOrder: sortOrder, unitKey: unitKey, url: url };
 }
