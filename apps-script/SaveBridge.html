@@ -1,0 +1,136 @@
+<script>
+(function(){
+  const STATUS_CODES = new Set(['ACT','OB','TRN','UI','AWOL','AWA','SUS','DET','DEC','DIS','RET']);
+  let pendingCell = null;
+  let pendingChoice = null;
+  const rememberedRanges = [];
+
+  function iso(d){
+    return [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-');
+  }
+
+  function parseIso(v){ return new Date(v + 'T12:00:00'); }
+
+  function weekBounds(v){
+    const d = parseIso(v), s = new Date(d);
+    s.setDate(d.getDate() - d.getDay());
+    const e = new Date(s); e.setDate(s.getDate() + 6);
+    return { start: iso(s), end: iso(e) };
+  }
+
+  function datesBetween(a,b){
+    const out=[], s=parseIso(a), e=parseIso(b);
+    for(let d=new Date(s); d<=e; d.setDate(d.getDate()+1)) out.push(iso(d));
+    return out;
+  }
+
+  function setMessage(msg){
+    const a=document.getElementById('status'), b=document.getElementById('footerMessage');
+    if(a) a.textContent=msg;
+    if(b) b.textContent=msg;
+  }
+
+  document.addEventListener('click', function(e){
+    const cell = e.target.closest && e.target.closest('.status-cell');
+    if(cell && (e.target.matches('[data-action="cycle"]') || e.target.matches('[data-action="edit"]'))){
+      pendingCell = { employeeKey: cell.dataset.emp, day: cell.dataset.day };
+    }
+
+    const leave = e.target.closest && e.target.closest('[data-leave]');
+    if(leave) pendingChoice = { status:'LEAVE', leaveType:leave.dataset.leave };
+
+    const st = e.target.closest && e.target.closest('[data-st]');
+    if(st) pendingChoice = { status:st.dataset.st, leaveType:null };
+
+    if(e.target.id === 'rangeApply' && pendingCell && pendingChoice){
+      const s=document.getElementById('rangeStart'), en=document.getElementById('rangeEnd');
+      if(s && en && s.value && en.value){
+        rememberedRanges.push({
+          employeeKey: pendingCell.employeeKey,
+          startDate: s.value,
+          endDate: en.value,
+          status: pendingChoice.status,
+          leaveType: pendingChoice.leaveType
+        });
+      }
+    }
+  }, true);
+
+  function buildEntries(){
+    const map = new Map();
+
+    rememberedRanges.forEach(function(r){
+      datesBetween(r.startDate, r.endDate).forEach(function(day){
+        map.set(r.employeeKey+'|'+day, [r.employeeKey, day, r.status, r.leaveType || null]);
+      });
+    });
+
+    document.querySelectorAll('.status-cell').forEach(function(cell){
+      const emp=String(cell.dataset.emp||''), day=String(cell.dataset.day||'');
+      const btn=cell.querySelector('.status-btn');
+      if(!emp || !day || !btn) return;
+      const code=String(btn.textContent||'').trim();
+      let status='UNRECORDED', leaveType=null;
+      if(code==='P') status='PRESENT';
+      else if(code==='O') status='OFF';
+      else if(STATUS_CODES.has(code)) status=code;
+      else if(code && code!=='—') { status='LEAVE'; leaveType=code; }
+      map.set(emp+'|'+day, [emp, day, status, leaveType]);
+    });
+
+    return Array.from(map.values()).sort(function(a,b){
+      return (a[0]+'|'+a[1]).localeCompare(b[0]+'|'+b[1]);
+    });
+  }
+
+  function saveWeek(){
+    const btn=document.getElementById('saveWeek');
+    const camp=document.getElementById('camp').value;
+    const office=document.getElementById('office').value;
+    const baseDate=document.getElementById('date').value;
+    const bounds=weekBounds(baseDate);
+    const entries=buildEntries();
+
+    if(!entries.length){ setMessage('Nothing to save.'); return; }
+
+    btn.disabled=true;
+    btn.dataset.originalText=btn.dataset.originalText || btn.textContent;
+    btn.textContent='Saving…';
+    btn.classList.add('saving');
+    setMessage('Saving '+entries.length+' attendance records…');
+
+    google.script.run
+      .withSuccessHandler(function(result){
+        btn.disabled=false;
+        btn.textContent=btn.dataset.originalText || 'Save Week';
+        btn.classList.remove('saving');
+        const msg='Saved '+result.saved+' records. Transaction '+result.transactionId+'.';
+        setMessage(msg);
+      })
+      .withFailureHandler(function(err){
+        btn.disabled=false;
+        btn.textContent=btn.dataset.originalText || 'Save Week';
+        btn.classList.remove('saving');
+        setMessage('Save failed: '+(err && err.message ? err.message : err));
+      })
+      .saveAttendanceWeek({
+        camp:camp,
+        office:office,
+        weekStart:bounds.start,
+        weekEnd:bounds.end,
+        entries:entries
+      });
+  }
+
+  function enable(){
+    const btn=document.getElementById('saveWeek');
+    if(!btn) return;
+    btn.disabled=false;
+    btn.title='Save this office/week to Google Sheets';
+    btn.onclick=saveWeek;
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', enable);
+  else enable();
+})();
+</script>
