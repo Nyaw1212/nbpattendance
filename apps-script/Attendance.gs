@@ -20,16 +20,9 @@ function ensureAttendanceSheet_() {
   return sheet;
 }
 
-function saveAttendanceWeek(payload) {
-  if (!payload || !payload.camp || !payload.office || !payload.weekStart || !payload.weekEnd) {
-    throw new Error('Camp, office, weekStart, and weekEnd are required.');
-  }
-
-  const rawEntries = Array.isArray(payload.entries) ? payload.entries : [];
-  if (!rawEntries.length) throw new Error('No attendance entries supplied.');
-
+function normalizeAttendanceEntries_(rawEntries) {
   const deduped = {};
-  rawEntries.forEach(function(raw) {
+  (Array.isArray(rawEntries) ? rawEntries : []).forEach(function(raw) {
     if (!Array.isArray(raw) || raw.length < 3) return;
     const employeeKey = String(raw[0] || '').trim();
     const date = String(raw[1] || '').trim();
@@ -38,20 +31,20 @@ function saveAttendanceWeek(payload) {
     if (!employeeKey || !date || !status) return;
     deduped[employeeKey + '|' + date] = [employeeKey, date, status, leaveType];
   });
+  return Object.keys(deduped).sort().map(function(k) { return deduped[k]; });
+}
 
-  const entries = Object.keys(deduped).sort().map(function(k) { return deduped[k]; });
-  if (!entries.length) throw new Error('No valid attendance entries supplied.');
-
+function appendAttendanceBackup_(entries, camp, office, weekStart, weekEnd) {
   const transactionId = Utilities.getUuid();
   const savedAt = new Date().toISOString();
   const backup = {
     v: 1,
     transactionId: transactionId,
     savedAt: savedAt,
-    camp: String(payload.camp),
-    office: String(payload.office),
-    dateFrom: String(payload.weekStart),
-    dateTo: String(payload.weekEnd),
+    camp: String(camp),
+    office: String(office),
+    dateFrom: String(weekStart),
+    dateTo: String(weekEnd),
     entries: entries
   };
 
@@ -67,10 +60,10 @@ function saveAttendanceWeek(payload) {
     sheet.appendRow([
       transactionId,
       savedAt,
-      String(payload.camp),
-      String(payload.office),
-      String(payload.weekStart),
-      String(payload.weekEnd),
+      String(camp),
+      String(office),
+      String(weekStart),
+      String(weekEnd),
       entries.length,
       json
     ]);
@@ -79,11 +72,55 @@ function saveAttendanceWeek(payload) {
     lock.releaseLock();
   }
 
+  return { transactionId: transactionId, savedAt: savedAt, jsonCharacters: json.length };
+}
+
+function saveAttendanceWeek(payload) {
+  if (!payload || !payload.camp || !payload.office || !payload.weekStart || !payload.weekEnd) {
+    throw new Error('Camp, office, weekStart, and weekEnd are required.');
+  }
+
+  const entries = normalizeAttendanceEntries_(payload.entries);
+  if (!entries.length) throw new Error('No valid attendance entries supplied.');
+
+  // Neon is the primary attendance store. Do not create a successful backup-only
+  // transaction if the primary database write fails.
+  const neonSaved = saveNeonAttendance_(entries, payload.camp, payload.office);
+
+  let backup;
+  try {
+    backup = appendAttendanceBackup_(entries, payload.camp, payload.office, payload.weekStart, payload.weekEnd);
+  } catch (backupError) {
+    return {
+      ok: true,
+      saved: neonSaved,
+      source: 'neon',
+      backupOk: false,
+      backupWarning: backupError && backupError.message ? backupError.message : String(backupError)
+    };
+  }
+
   return {
     ok: true,
-    transactionId: transactionId,
-    savedAt: savedAt,
-    saved: entries.length,
-    jsonCharacters: json.length
+    saved: neonSaved,
+    source: 'neon',
+    backupOk: true,
+    transactionId: backup.transactionId,
+    savedAt: backup.savedAt,
+    jsonCharacters: backup.jsonCharacters
+  };
+}
+
+function loadAttendanceWeek(payload) {
+  if (!payload || !payload.camp || !payload.office || !payload.weekStart || !payload.weekEnd) {
+    throw new Error('Camp, office, weekStart, and weekEnd are required.');
+  }
+
+  const records = loadNeonAttendance_(payload.camp, payload.office, payload.weekStart, payload.weekEnd);
+  return {
+    ok: true,
+    source: 'neon',
+    records: records,
+    count: records.length
   };
 }
