@@ -182,10 +182,26 @@ function getReferenceData_(perf) {
   perf.officeRows = officeValues.length;
 
   t = Date.now();
+  const officeHeaders = (officeValues[0] || []).map(function(v) { return String(v || '').trim(); });
+  const oix = function(name) { return officeHeaders.indexOf(name); };
+  const campIx = oix('CAMP');
+  const officeIx = oix('OFFICE');
+  const activeIx = oix('ACTIVE');
+  const sortIx = oix('SORT ORDER');
+  const unitKeyIx = oix('UNIT KEY');
   const offices = officeValues.slice(1)
-    .filter(function(row) { return row[0] && row[1] && String(row[2]).toLowerCase() !== 'false'; })
+    .filter(function(row) {
+      if (campIx < 0 || officeIx < 0) return false;
+      const activeValue = activeIx >= 0 ? String(row[activeIx] || '').trim().toLowerCase() : 'true';
+      return row[campIx] && row[officeIx] && activeValue !== 'false';
+    })
     .map(function(row) {
-      return { camp: String(row[0]).trim(), office: String(row[1]).trim(), sortOrder: Number(row[3] || 0), unitKey: String(row[4] || '').trim() };
+      return {
+        camp: String(row[campIx] || '').trim(),
+        office: String(row[officeIx] || '').trim(),
+        sortOrder: sortIx >= 0 ? Number(row[sortIx] || 0) : 0,
+        unitKey: unitKeyIx >= 0 ? String(row[unitKeyIx] || '').trim() : ''
+      };
     });
   perf.officeBuildMs = Date.now() - t;
   perf.officeCount = offices.length;
