@@ -51,6 +51,14 @@
     </section>
   </main>
 
+  <div id="saveOverlay" class="save-overlay" hidden>
+    <div class="save-overlay-card" role="status" aria-live="polite">
+      <div class="save-spinner" aria-hidden="true"></div>
+      <strong>Saving attendance…</strong>
+      <span id="saveOverlayText">Please wait while the records are saved to Neon and Google Sheets.</span>
+    </div>
+  </div>
+
   <div id="modalRoot"></div>
   <script>window.INITIAL_UNIT_KEY = <?!= JSON.stringify(unitKey) ?>;</script>
   <?!= include('FrontendPerf'); ?>
