@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('MovementStyles'); ?>
+</head>
+<body>
+  <main class="movement-shell">
+    <header class="movement-header">
+      <div>
+        <h1><?= appTitle ?></h1>
+        <p>Transfer, receive, and document personnel movements.</p>
+      </div>
+      <span class="module-badge">Movement Module</span>
+    </header>
+
+    <div id="movementStatus" class="movement-status">Loading personnel and office references…</div>
+
+    <section class="movement-layout">
+      <section class="panel transfer-panel">
+        <div class="panel-head">
+          <div><span>NEW MOVEMENT</span><h2>Transfer Personnel</h2></div>
+          <span class="status-chip pending">Pending Receipt</span>
+        </div>
+
+        <div class="field full">
+          <label for="personnelSearch">PERSONNEL</label>
+          <input id="personnelSearch" placeholder="Search name or badge number…" autocomplete="off">
+          <select id="personnelSelect" size="6"></select>
+        </div>
+
+        <div id="currentAssignment" class="assignment-card muted">Select personnel to see the current assignment.</div>
+
+        <div class="form-grid">
+          <div class="field"><label for="toCamp">DESTINATION CAMP</label><select id="toCamp"></select></div>
+          <div class="field"><label for="toOffice">DESTINATION OFFICE</label><select id="toOffice"></select></div>
+          <div class="field"><label for="adminOrderNo">ADMIN ORDER NO. *</label><input id="adminOrderNo" placeholder="e.g. AO 123-2026"></div>
+          <div class="field"><label for="adminOrderDate">ADMIN ORDER DATE</label><input id="adminOrderDate" type="date"></div>
+          <div class="field"><label for="effectiveDate">EFFECTIVE DATE *</label><input id="effectiveDate" type="date"></div>
+          <div class="field full"><label for="remarks">REMARKS</label><textarea id="remarks" rows="3" placeholder="Optional movement notes"></textarea></div>
+        </div>
+
+        <div class="actions"><button id="createMovement" class="primary">Create Transfer</button></div>
+      </section>
+
+      <section class="panel pending-panel">
+        <div class="panel-head">
+          <div><span>RECEIVING</span><h2>Pending Receipt</h2></div>
+          <div id="pendingCount" class="count-badge">0</div>
+        </div>
+        <div class="pending-toolbar"><input id="pendingSearch" placeholder="Search pending personnel, office, or Admin Order…"><button id="refreshPending">Refresh</button></div>
+        <div id="pendingList" class="pending-list"><div class="empty">Loading pending movements…</div></div>
+      </section>
+    </section>
+  </main>
+
+  <?!= include('MovementJs'); ?>
+</body>
+</html>
