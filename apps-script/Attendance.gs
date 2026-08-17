@@ -32,6 +32,7 @@ function ensureAttendanceSheet_() {
     ]]);
     sheet.setFrozenRows(1);
   }
+  sheet.getRange('B:B').setNumberFormat('m/d/yyyy h:mm:ss AM/PM');
   return sheet;
 }
 
@@ -102,7 +103,8 @@ function getAttendanceCacheRecords_(cacheKey) {
 
 function appendAttendanceBackup_(entries, camp, office, weekStart, weekEnd) {
   const transactionId = Utilities.getUuid();
-  const savedAt = new Date().toISOString();
+  const savedAtDate = new Date();
+  const savedAt = savedAtDate.toISOString();
   const backup = {
     v: 1,
     transactionId: transactionId,
@@ -125,7 +127,7 @@ function appendAttendanceBackup_(entries, camp, office, weekStart, weekEnd) {
     const sheet = ensureAttendanceSheet_();
     sheet.appendRow([
       transactionId,
-      savedAt,
+      savedAtDate,
       String(camp),
       String(office),
       String(weekStart),
@@ -133,6 +135,8 @@ function appendAttendanceBackup_(entries, camp, office, weekStart, weekEnd) {
       entries.length,
       json
     ]);
+    const row = sheet.getLastRow();
+    sheet.getRange(row, 2).setNumberFormat('m/d/yyyy h:mm:ss AM/PM');
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
