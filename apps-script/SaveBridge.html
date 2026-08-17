@@ -6,6 +6,15 @@
     if(b) b.textContent=msg;
   }
 
+  function setSavingUi(active,count){
+    const overlay=document.getElementById('saveOverlay');
+    const text=document.getElementById('saveOverlayText');
+    if(text && count){
+      text.textContent='Saving '+count+' attendance records to Neon and Google Sheets backup. Please wait…';
+    }
+    if(overlay) overlay.hidden=!active;
+  }
+
   function saveWeek(){
     const btn=document.getElementById('saveWeek');
     const app=window.NBPAttendanceApp;
@@ -22,10 +31,12 @@
     btn.dataset.originalText=btn.dataset.originalText||btn.textContent;
     btn.textContent='Saving…';
     btn.classList.add('saving');
+    setSavingUi(true,entries.length);
     setMessage('Saving '+entries.length+' attendance records to Neon…');
 
     google.script.run
       .withSuccessHandler(function(result){
+        setSavingUi(false);
         btn.disabled=false;
         btn.textContent=btn.dataset.originalText||'Save Week';
         btn.classList.remove('saving');
@@ -36,6 +47,7 @@
         }
       })
       .withFailureHandler(function(err){
+        setSavingUi(false);
         btn.disabled=false;
         btn.textContent=btn.dataset.originalText||'Save Week';
         btn.classList.remove('saving');
