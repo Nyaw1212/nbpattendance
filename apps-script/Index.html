@@ -4,6 +4,7 @@
   <base target="_top">
   <meta charset="utf-8">
   <?!= include('Styles'); ?>
+  <?!= include('MovementStyles'); ?>
 </head>
 <body>
   <main class="page-shell">
@@ -12,71 +13,42 @@
         <div class="app-title-block"><h1><?= appTitle ?></h1><p>Weekly office attendance recorder</p></div>
         <div class="app-head-right">
           <div id="shiftStatusBar" class="shift-status-bar" hidden><span class="shift-clock">🕒 <b id="shiftClock">--:--:--</b></span><span class="shift-divider">•</span><span>Current Shift <b id="currentShift">—</b></span><span class="shift-divider">•</span><strong id="submissionStatus" class="submission-status">Checking…</strong></div>
-          <button id="movementLaunchBtn" class="movement-launch-btn" type="button" title="Personnel Movement Center" aria-label="Open Personnel Movement Center">
-            <span class="movement-switch-icon" aria-hidden="true">⇄</span><span id="movementLaunchCount" class="movement-launch-count" hidden>0</span>
-          </button>
+          <button id="movementLaunchBtn" class="movement-launch-btn" type="button" title="Personnel Movement Center" aria-label="Open Personnel Movement Center"><span class="movement-switch-icon" aria-hidden="true">⇄</span><span id="movementLaunchCount" class="movement-launch-count" hidden>0</span></button>
           <span class="port-badge">Apps Script</span>
         </div>
       </header>
-
       <div id="status" class="status-line">Loading reference data…</div>
-
       <section class="controls">
         <label><span>WEEK CONTAINING</span><input id="date" type="date"></label>
         <label><span>CAMP</span><select id="camp"></select></label>
         <label><span>OFFICE</span><select id="office"></select></label>
         <button id="load" class="primary">Load Week</button>
       </section>
-
       <section class="work-area">
         <section class="attendance-pane">
-          <div class="toolbar">
-            <button id="prevWeek">‹ Previous</button>
-            <strong id="weekLabel"></strong>
-            <button id="nextWeek">Next ›</button>
-            <input id="search" placeholder="Search personnel…">
-            <span class="hint">P → O → choose Leave / Status</span>
-          </div>
+          <div class="toolbar"><button id="prevWeek">‹ Previous</button><strong id="weekLabel"></strong><button id="nextWeek">Next ›</button><input id="search" placeholder="Search personnel…"><span class="hint">P → O → choose Leave / Status</span></div>
           <div class="grid-wrap" id="gridWrap"></div>
         </section>
-
         <aside class="summary-pane">
-          <div class="summary-head">
-            <div><span>SUMMARY OF PERSONNEL STATUSES / MOVEMENT</span><strong id="activeDayLabel"></strong></div>
-            <div id="caseCount" class="case-count">0</div>
-          </div>
-          <div id="caseChips" class="case-chips"></div>
-          <div id="caseList" class="case-list"></div>
+          <div class="summary-head"><div><span>SUMMARY OF PERSONNEL STATUSES / MOVEMENT</span><strong id="activeDayLabel"></strong></div><div id="caseCount" class="case-count">0</div></div>
+          <div id="caseChips" class="case-chips"></div><div id="caseList" class="case-list"></div>
         </aside>
       </section>
-
-      <footer>
-        <span id="footerMessage">Ready.</span>
-        <button class="primary" id="saveWeek" title="Save this office/week to Google Sheets">Save Week</button>
-      </footer>
+      <footer><span id="footerMessage">Ready.</span><button class="primary" id="saveWeek" title="Save this office/week to Google Sheets">Save Week</button></footer>
     </section>
   </main>
 
-  <div id="saveOverlay" class="save-overlay" hidden>
-    <div class="save-overlay-card" role="status" aria-live="polite">
-      <div class="save-spinner" aria-hidden="true"></div>
-      <strong>Saving attendance…</strong>
-      <span id="saveOverlayText">Please wait while the records are saved to Neon and Google Sheets.</span>
-    </div>
-  </div>
+  <div id="saveOverlay" class="save-overlay" hidden><div class="save-overlay-card" role="status" aria-live="polite"><div class="save-spinner" aria-hidden="true"></div><strong>Saving attendance…</strong><span id="saveOverlayText">Please wait while the records are saved to Neon and Google Sheets.</span></div></div>
 
   <div id="movementModal" class="movement-modal-backdrop" hidden>
     <section class="movement-modal-card" role="dialog" aria-modal="true" aria-label="Personnel Movement Center">
       <header class="movement-modal-head"><strong>Personnel Movement Center</strong><button id="movementModalClose" class="movement-modal-close" type="button" aria-label="Close">×</button></header>
-      <iframe id="movementModalFrame" class="movement-modal-frame" title="Personnel Movement Center"></iframe>
+      <div class="movement-modal-body"><?!= include('MovementPanel'); ?></div>
     </section>
   </div>
 
   <div id="modalRoot"></div>
-  <script>
-    window.INITIAL_UNIT_KEY = <?!= JSON.stringify(unitKey) ?>;
-    window.MOVEMENT_WEB_APP_URL = <?!= JSON.stringify(webAppUrl) ?>;
-  </script>
+  <script>window.INITIAL_UNIT_KEY = <?!= JSON.stringify(unitKey) ?>;</script>
   <?!= include('FrontendPerf'); ?>
   <?!= include('AppJs'); ?>
   <?!= include('CountEnhancer'); ?>
@@ -84,6 +56,7 @@
   <?!= include('SaveBridge'); ?>
   <?!= include('SummaryScroll'); ?>
   <?!= include('ShiftStatus'); ?>
+  <?!= include('MovementJs'); ?>
   <?!= include('MovementLauncher'); ?>
 </body>
 </html>
