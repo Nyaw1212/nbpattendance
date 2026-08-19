@@ -73,7 +73,10 @@
   </div>
 
   <div id="modalRoot"></div>
-  <script>window.INITIAL_UNIT_KEY = <?!= JSON.stringify(unitKey) ?>;</script>
+  <script>
+    window.INITIAL_UNIT_KEY = <?!= JSON.stringify(unitKey) ?>;
+    window.MOVEMENT_WEB_APP_URL = <?!= JSON.stringify(webAppUrl) ?>;
+  </script>
   <?!= include('FrontendPerf'); ?>
   <?!= include('AppJs'); ?>
   <?!= include('CountEnhancer'); ?>
