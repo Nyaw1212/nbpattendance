@@ -1,0 +1,29 @@
+<style>
+.movement-home-link{position:relative;display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:50%;text-decoration:none;background:#fff;border:1px solid #d7e3da;color:#17452a;font-size:21px;flex:0 0 auto}.movement-home-link:hover{background:#f8fbf9}.movement-home-count{position:absolute;top:-7px;right:-7px;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:#e11d2e;color:#fff;border:2px solid #edf7f0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;line-height:1}.movement-home-count[hidden]{display:none}.movement-home-link.has-pending{box-shadow:0 0 0 3px rgba(225,29,46,.08)}
+</style>
+<script>
+(function(){
+  const link=document.getElementById('movementHomeLink');
+  const countEl=document.getElementById('movementHomeCount');
+  if(!link||!countEl)return;
+
+  function render(count){
+    count=Math.max(0,Number(count)||0);
+    countEl.textContent=count>99?'99+':String(count);
+    countEl.hidden=count===0;
+    link.classList.toggle('has-pending',count>0);
+    link.title=count>0?(count+' personnel due for receiving'):'Personnel Movement Center';
+  }
+
+  function refresh(){
+    google.script.run
+      .withSuccessHandler(render)
+      .withFailureHandler(function(err){console.warn('Movement notification unavailable:',err);})
+      .getPendingMovementCount();
+  }
+
+  refresh();
+  setInterval(refresh,60000);
+  window.refreshMovementNotification=refresh;
+})();
+</script>
