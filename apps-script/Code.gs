@@ -1,6 +1,18 @@
 const APP_TITLE = 'NBP Attendance Center';
+const MOVEMENT_APP_TITLE = 'NBP Personnel Movement Center';
 
 function doGet(e) {
+  const page = (e && e.parameter && e.parameter.app) ? String(e.parameter.app).toLowerCase() : 'attendance';
+
+  if (page === 'movement') {
+    const movementTemplate = HtmlService.createTemplateFromFile('MovementIndex');
+    movementTemplate.appTitle = MOVEMENT_APP_TITLE;
+    return movementTemplate.evaluate()
+      .setTitle(MOVEMENT_APP_TITLE)
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
+
   const template = HtmlService.createTemplateFromFile('Index');
   template.appTitle = APP_TITLE;
   template.unitKey = (e && e.parameter && e.parameter.unit) ? String(e.parameter.unit) : '';
