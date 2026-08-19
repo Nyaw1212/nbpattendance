@@ -16,6 +16,7 @@ function doGet(e) {
   const template = HtmlService.createTemplateFromFile('Index');
   template.appTitle = APP_TITLE;
   template.unitKey = (e && e.parameter && e.parameter.unit) ? String(e.parameter.unit) : '';
+  template.webAppUrl = ScriptApp.getService().getUrl();
   return template.evaluate()
     .setTitle(APP_TITLE)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
