@@ -24,10 +24,22 @@
       .getPendingMovementCount();
   }
 
+  function movementUrl(){
+    const base=String(window.MOVEMENT_WEB_APP_URL||'').trim();
+    if(!base) throw new Error('Movement web app URL is unavailable.');
+    return base+(base.indexOf('?')>=0?'&':'?')+'app=movement&embed=1';
+  }
+
   function openModal(){
     if(!frame.dataset.loaded){
-      frame.src='?app=movement&embed=1';
-      frame.dataset.loaded='1';
+      try{
+        frame.src=movementUrl();
+        frame.dataset.loaded='1';
+      }catch(err){
+        console.error(err);
+        alert('Personnel Movement Center could not be opened: '+err.message);
+        return;
+      }
     }
     modal.hidden=false;
     document.body.style.overflow='hidden';
