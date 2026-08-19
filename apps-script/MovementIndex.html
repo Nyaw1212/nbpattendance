@@ -12,7 +12,14 @@
         <h1><?= appTitle ?></h1>
         <p>Transfer, receive, and document personnel movements.</p>
       </div>
-      <span class="module-badge">Movement Module</span>
+      <div class="movement-header-actions">
+        <div id="movementNotification" class="movement-notification" title="Personnel due for receiving" hidden>
+          <span class="notification-bell">🔔</span>
+          <span id="movementNotificationCount" class="notification-count">0</span>
+          <span class="notification-label">Due for Receiving</span>
+        </div>
+        <span class="module-badge">Movement Module</span>
+      </div>
     </header>
 
     <div id="movementStatus" class="movement-status">Loading personnel and office references…</div>
