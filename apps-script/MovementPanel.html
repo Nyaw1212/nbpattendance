@@ -1,0 +1,41 @@
+<div class="movement-shell movement-shell-embedded">
+  <div id="movementStatus" class="movement-status">Movement Center is ready to load.</div>
+  <nav class="movement-tabs">
+    <button id="tabTransfer" class="movement-tab active" type="button">Transfer Personnel</button>
+    <button id="tabReceive" class="movement-tab" type="button">Receive Personnel <span id="tabPendingCount" class="tab-count" hidden>0</span></button>
+  </nav>
+
+  <section id="transferView" class="movement-view">
+    <div class="bulk-layout">
+      <section class="panel roster-panel">
+        <div class="panel-head"><div><span>FROM ASSIGNMENT</span><h2>Select Personnel</h2></div><strong id="selectedCount">0 selected</strong></div>
+        <div class="source-filters"><label>CAMP<select id="fromCamp"></select></label><label>OFFICE<select id="fromOffice"></select></label></div>
+        <div class="roster-tools"><input id="personnelSearch" placeholder="Search name or badge number…"><button id="selectAllVisible" type="button">Select All</button><button id="clearSelected" type="button">Clear</button></div>
+        <div id="personnelRoster" class="personnel-roster"><div class="empty">Open Movement Center to load personnel.</div></div>
+      </section>
+
+      <section class="panel details-panel">
+        <div class="panel-head"><div><span>TRANSFER DETAILS</span><h2>Destination & Authority</h2></div><span class="status-chip pending">Pending Receipt</span></div>
+        <div class="form-grid pad">
+          <div class="field"><label>DESTINATION CAMP</label><select id="toCamp"></select></div>
+          <div class="field"><label>DESTINATION OFFICE</label><select id="toOffice"></select></div>
+          <div class="field"><label>ADMIN ORDER NO. *</label><input id="adminOrderNo" placeholder="e.g. AO 123-2026"></div>
+          <div class="field"><label>ADMIN ORDER DATE</label><input id="adminOrderDate" type="date"></div>
+          <div class="field"><label>EFFECTIVE DATE *</label><input id="effectiveDate" type="date"></div>
+          <div class="field full"><label>REMARKS</label><textarea id="remarks" rows="3" placeholder="Optional movement notes"></textarea></div>
+        </div>
+        <div class="bulk-summary"><strong id="transferSummary">Select personnel to transfer.</strong><span>Each selected person will receive an individual movement record.</span></div>
+        <div class="actions"><button id="createMovement" class="primary" type="button" disabled>Transfer 0 Personnel</button></div>
+      </section>
+    </div>
+  </section>
+
+  <section id="receiveView" class="movement-view" hidden>
+    <section class="panel">
+      <div class="panel-head"><div><span>RECEIVING INBOX</span><h2>Pending Receipt</h2></div><div id="pendingCount" class="count-badge">0</div></div>
+      <div class="pending-toolbar"><input id="pendingSearch" placeholder="Search personnel, destination, or Admin Order…"><button id="selectAllPending" type="button">Select All</button><button id="clearPending" type="button">Clear</button><button id="refreshPending" type="button">Refresh</button></div>
+      <div id="pendingList" class="pending-list"><div class="empty">Open Movement Center to load pending movements.</div></div>
+      <div class="receive-footer"><strong id="receiveSelectedCount">0 selected</strong><button id="receiveSelected" class="primary" type="button" disabled>Receive 0 Personnel</button></div>
+    </section>
+  </section>
+</div>
