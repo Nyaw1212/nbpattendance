@@ -10,7 +10,13 @@
     <section class="app-card">
       <header class="app-head">
         <div class="app-title-block"><h1><?= appTitle ?></h1><p>Weekly office attendance recorder</p></div>
-        <div class="app-head-right"><div id="shiftStatusBar" class="shift-status-bar" hidden><span class="shift-clock">🕒 <b id="shiftClock">--:--:--</b></span><span class="shift-divider">•</span><span>Current Shift <b id="currentShift">—</b></span><span class="shift-divider">•</span><strong id="submissionStatus" class="submission-status">Checking…</strong></div><span class="port-badge">Apps Script</span></div>
+        <div class="app-head-right">
+          <div id="shiftStatusBar" class="shift-status-bar" hidden><span class="shift-clock">🕒 <b id="shiftClock">--:--:--</b></span><span class="shift-divider">•</span><span>Current Shift <b id="currentShift">—</b></span><span class="shift-divider">•</span><strong id="submissionStatus" class="submission-status">Checking…</strong></div>
+          <button id="movementLaunchBtn" class="movement-launch-btn" type="button" title="Personnel Movement Center" aria-label="Open Personnel Movement Center">
+            <span aria-hidden="true">🔔</span><span id="movementLaunchCount" class="movement-launch-count" hidden>0</span>
+          </button>
+          <span class="port-badge">Apps Script</span>
+        </div>
       </header>
 
       <div id="status" class="status-line">Loading reference data…</div>
@@ -59,6 +65,13 @@
     </div>
   </div>
 
+  <div id="movementModal" class="movement-modal-backdrop" hidden>
+    <section class="movement-modal-card" role="dialog" aria-modal="true" aria-label="Personnel Movement Center">
+      <header class="movement-modal-head"><strong>Personnel Movement Center</strong><button id="movementModalClose" class="movement-modal-close" type="button" aria-label="Close">×</button></header>
+      <iframe id="movementModalFrame" class="movement-modal-frame" title="Personnel Movement Center"></iframe>
+    </section>
+  </div>
+
   <div id="modalRoot"></div>
   <script>window.INITIAL_UNIT_KEY = <?!= JSON.stringify(unitKey) ?>;</script>
   <?!= include('FrontendPerf'); ?>
@@ -68,5 +81,6 @@
   <?!= include('SaveBridge'); ?>
   <?!= include('SummaryScroll'); ?>
   <?!= include('ShiftStatus'); ?>
+  <?!= include('MovementLauncher'); ?>
 </body>
 </html>
